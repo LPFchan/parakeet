@@ -540,15 +540,19 @@ private struct StripView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Toggle(isOn: Binding(get: { strip.showAll }, set: { strip.showAll = $0 })) {
-                Label("Translate All", systemImage: "translate").font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.85))
+            // The pill is the switch: lit while every translation shows.
+            Button { strip.showAll.toggle() } label: {
+                Label("Translate All", systemImage: "translate")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(strip.showAll ? .white : .white.opacity(0.7))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(strip.showAll ? Color.accentColor.opacity(0.7) : .clear, in: .capsule)
+                    .modifier(Pill())
+                    .contentShape(.capsule)
+                    .animation(.spring(duration: 0.34, bounce: 0), value: strip.showAll)
             }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 8)
-            .modifier(Pill())
+            .buttonStyle(.plain)
             if let missing = strip.missing {
                 DownloadOffer(missing: missing) { chosen in
                     withAnimation(.spring(duration: 0.34, bounce: 0)) { strip.missing = nil }
