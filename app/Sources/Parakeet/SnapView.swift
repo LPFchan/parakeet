@@ -36,10 +36,10 @@ final class SnapPanel: NSPanel {
     }
 }
 
-/// The screen springs down into a picture that glows in its own colours: its
-/// edges, blurred and stretched outward, spill into the dark around it. Once
-/// it's read, hovering a paragraph inks in its translation; dragging over an
-/// area keeps everything in it translated.
+/// The screen springs down into a picture. Once it's read and translated, the
+/// picture lights up in its own colours (its edges, blurred and stretched
+/// outward, spill into the dark), and hovering a paragraph inks in its
+/// translation; dragging over an area keeps everything in it translated.
 final class SnapView: NSView {
     var onDismiss: () -> Void = {}
     private(set) var closing = false
@@ -51,9 +51,8 @@ final class SnapView: NSView {
 
     private let backdrop = CALayer()
     private let glow = CALayer()
-    /// The screen itself, holding the translations, the reading scan and the lens.
+    /// The screen itself, holding the translations and the lens.
     private let picture = CALayer()
-    private let scan = CAGradientLayer()
     private let lens = CALayer()
 
     private var patches: [Patch] = []
@@ -78,7 +77,6 @@ final class SnapView: NSView {
         wantsLayer = true
         layerUsesCoreImageFilters = true
         let root = layer!
-        let size = frame.size
 
         backdrop.frame = bounds
         backdrop.backgroundColor = CGColor(gray: 0.03, alpha: 1)
@@ -110,13 +108,6 @@ final class SnapView: NSView {
         picture.transform = CATransform3DMakeScale(shrink, shrink, 1)
         root.addSublayer(picture)
 
-        // While the screen is read, a band of light runs down the picture.
-        scan.frame = CGRect(x: 0, y: -260, width: size.width, height: 260)
-        scan.colors = [NSColor.clear.cgColor, CGColor(srgbRed: 0.4, green: 0.65, blue: 1, alpha: 0.25), NSColor.clear.cgColor]
-        scan.compositingFilter = "screenBlendMode"
-        scan.opacity = 0
-        picture.addSublayer(scan)
-
         lens.cornerRadius = 8
         lens.borderWidth = 1.5 / shrink
         lens.borderColor = NSColor.white.withAlphaComponent(0.85).cgColor
@@ -133,42 +124,26 @@ final class SnapView: NSView {
         addSubview(host)
 
         job.onReady = { [weak self] patches in self?.read(patches) }
-        job.onFail = { [weak self] in
-            NSSound.beep()
-            if let scan = self?.scan { self?.spring(scan, "opacity", to: 0) }
-        }
+        job.onFail = { NSSound.beep() }  // and it stays unlit
     }
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// The screen springs down to the picture, and its glow swells up behind it.
+    /// The screen springs down to the picture, unlit while it's being read.
     func play() {
         spring(picture, "transform.scale", to: shrink, from: 1)
         spring(picture, "cornerRadius", to: corner / shrink, from: 0)
-        spring(glow, "transform.scale", to: 1, from: 1 / shrink)
-        spring(glow, "opacity", to: 1, from: 0)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.settle() }
     }
 
-    /// The picture has landed: the reading begins to show.
     private func settle() {
         guard !closing else { return }
-        if patches.isEmpty {
-            let run = CABasicAnimation(keyPath: "position.y")
-            run.fromValue = -130
-            run.toValue = bounds.height + 130
-            run.duration = 1.8
-            run.repeatCount = .infinity
-            run.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            scan.add(run, forKey: "run")
-            spring(scan, "opacity", to: 1)
-        }
         // The pointer is followed by its position: a sheet over another app
         // doesn't reliably get mouse-moved events.
         follow = Timer.scheduledTimer(withTimeInterval: 1 / 60, repeats: true) { [weak self] _ in self?.track() }
     }
 
-    /// The translations are in: each waits, unseen, over its paragraph.
+    /// The translations are in: the picture lights up, and each waits, unseen, over its paragraph.
     private func read(_ patches: [Patch]) {
         self.patches = patches
         for patch in patches {
@@ -181,10 +156,12 @@ final class SnapView: NSView {
             blur.name = "blur"
             blur.setValue(6, forKey: kCIInputRadiusKey)
             ink.filters = [blur]
-            picture.insertSublayer(ink, below: scan)
+            picture.insertSublayer(ink, below: lens)
             inks[patch.id] = ink
         }
-        spring(scan, "opacity", to: 0)
+        guard !closing else { return }
+        spring(glow, "opacity", to: 1)
+        spring(glow, "transform.scale", to: 1, from: 0.97)
         for area in waiting { pin(in: area) }
         waiting = []
         hovered = nil
@@ -274,7 +251,6 @@ final class SnapView: NSView {
         CATransaction.begin()
         CATransaction.setCompletionBlock(done)
         spring(lens, "opacity", to: 0)
-        spring(scan, "opacity", to: 0)
         for id in inks.keys where inks[id]!.opacity > 0 { ink(id, in: false) }
         spring(picture, "transform.scale", to: 1)
         spring(picture, "cornerRadius", to: 0)
