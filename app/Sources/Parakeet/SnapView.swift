@@ -307,7 +307,8 @@ final class SnapView: NSView {
         let order = patches.sorted { $0.box.minY < $1.box.minY }.map(\.id)
         for (i, id) in order.enumerated() where !pinned.contains(id) && id != hovered {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.015) { [weak self] in
-                guard let self, !closing, strip.showAll == on else { return }
+                // Hovered or pinned meanwhile: it stays.
+                guard let self, !closing, strip.showAll == on, on || (!pinned.contains(id) && id != hovered) else { return }
                 ink(id, in: on)
             }
         }

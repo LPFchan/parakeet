@@ -123,6 +123,8 @@ final class SnapJob {
         let id = UUID()
         let source: Locale.Language
         let paragraphs: [Int]
+        /// Downloading its language: only it moves the download queue on, so macOS's prompts come one at a time.
+        var downloading = false
         let configuration: TranslationSession.Configuration
     }
 
@@ -237,15 +239,21 @@ final class SnapJob {
         })
         guard !languages.isEmpty else { return sessions.isEmpty ? (painted ? onFinished() : onFail()) : () }
         downloads += languages.dropFirst()
-        start(languages[0])
+        start(languages[0], downloading: true)
+        if sessions.isEmpty { painted ? onFinished() : onFail() }
     }
 
     /// A session for this language's paragraphs that no session has taken on yet.
-    private func start(_ source: Locale.Language) {
+    private func start(_ source: Locale.Language, downloading: Bool = false) {
         let mine = paragraphs.indices.filter { !claimed.contains($0) && paragraphs[$0].source?.isSame(as: source) == true }
-        guard !mine.isEmpty else { return }
+        guard !mine.isEmpty else {
+            // Nothing left of that language: on to the next download, so the queue never stalls.
+            if downloading, !downloads.isEmpty { start(downloads.removeFirst(), downloading: true) }
+            return
+        }
         claimed.formUnion(mine)
-        sessions.append(Session(source: source, paragraphs: mine, configuration: .init(source: source, target: target)))
+        sessions.append(Session(source: source, paragraphs: mine, downloading: downloading,
+                                configuration: .init(source: source, target: target)))
     }
 
     @MainActor func run(_ session: TranslationSession, for entry: Session) async {
@@ -273,7 +281,7 @@ final class SnapJob {
         }
         if Task.isCancelled { return }
         sessions.removeAll { $0.id == entry.id }
-        if !downloads.isEmpty { return start(downloads.removeFirst()) }
+        if entry.downloading, !downloads.isEmpty { return start(downloads.removeFirst(), downloading: true) }
         guard sessions.isEmpty else { return }
         if !missing.isEmpty { return askForMissing() }
         painted ? onFinished() : onFail()
