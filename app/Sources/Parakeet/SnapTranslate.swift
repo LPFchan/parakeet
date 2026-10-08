@@ -112,6 +112,8 @@ final class SnapJob {
     @ObservationIgnored private var claimed: Set<Int> = []
     @ObservationIgnored private var painted = false
     @ObservationIgnored private var painter: Painter?
+    /// The whole-screen read, which a forced read waits for.
+    @ObservationIgnored private var reading: Task<Void, Never>?
 
     struct Session: Identifiable {
         let id = UUID()
@@ -128,7 +130,7 @@ final class SnapJob {
 
     func read() {
         let image = image
-        Task.detached { [self] in
+        reading = Task.detached { [self] in
             let sketch = Self.sketch(image)
             await MainActor.run { onSketch(sketch) }
             let lines = Self.lines(in: image)
@@ -152,6 +154,7 @@ final class SnapJob {
         let image = image
         let area = area.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height)).integral
         guard area.width > 4, area.height > 4, let crop = image.cropping(to: area) else { return 0 }
+        await reading?.value  // what the whole read finds isn't found twice
         let known = paragraphs.map(\.box)
         let lines = await Task.detached {
             Self.recognize(Self.enlarged(crop), correct: true).map { line in
@@ -203,6 +206,8 @@ final class SnapJob {
         let kept = foreign.filter { paragraph in (ready + absent.map(\.language)).contains { paragraph.source?.isSame(as: $0) == true } }
         let languages = ready, offered = absent
         return await MainActor.run {
+            // Two forced reads of one area at once mustn't add it twice.
+            let kept = kept.filter { new in !paragraphs.contains { Self.overlap($0.box, new.box) > 0.5 } }
             let first = paragraphs.count
             paragraphs += kept
             onFound(kept.indices.map { (first + $0, kept[$0].box) })
@@ -239,11 +244,12 @@ final class SnapJob {
             for try await response in session.translate(batch: requests) {
                 guard let i = response.clientIdentifier.flatMap(Int.init) else { continue }
                 paragraphs[i].translation = response.targetText
-                // Lines nothing translates (timestamps, text already in the target language) show through.
-                let translated = paragraphs.flatMap { $0.lines.map(\.box) }
-                let untouched = lines.filter { line in !translated.contains { Self.overlap($0, line) > 0.5 } }
+                // Every other line shows through: a translation that runs long
+                // mustn't paint over its neighbours, translated or not.
+                let own = paragraphs[i].lines.map(\.box)
+                let others = lines.filter { line in !own.contains { Self.overlap($0, line) > 0.5 } }
                 let paragraph = paragraphs[i], painter = painter
-                if let patch = await Task.detached(operation: { painter?.patch(i, paragraph, around: untouched) }).value {
+                if let patch = await Task.detached(operation: { painter?.patch(i, paragraph, around: others) }).value {
                     painted = true
                     onReady([patch])
                 }
@@ -476,8 +482,11 @@ struct Paragraph {
 /// original's text colour. Pixels, top-left origin.
 struct Patch: Identifiable {
     let id: Int
+    /// Where it's drawn: the paragraph, and any room its translation ran into.
     let box: CGRect
     let image: CGImage
+    /// The paragraph it translates, for hovering and dragging.
+    let source: CGRect
 }
 
 final class Painter {
@@ -501,7 +510,7 @@ final class Painter {
         return SIMD3(Double(pixels[i]), Double(pixels[i + 1]), Double(pixels[i + 2])) / 255
     }
 
-    /// `around`: lines nothing translates; any the patch would cover shows through it.
+    /// `around`: every other line on screen; any the patch would cover shows through it.
     func patch(_ id: Int, _ paragraph: Paragraph, around: [CGRect] = []) -> Patch? {
         guard !paragraph.translation.isEmpty else { return nil }
         let lines = paragraph.lines
@@ -588,11 +597,13 @@ final class Painter {
         // The ink, not the spacing after the last line, decides how far down a long translation reaches.
         let inked = CGRect(x: frame.minX - pad, y: frame.minY, width: frame.width + pad * 2, height: max(0, frame.height - spacing))
         let box = covered.union(inked).intersection(whole).integral
-        let others = around.filter(box.intersects)
-            .map { $0.insetBy(dx: -2, dy: -2).offsetBy(dx: -box.minX, dy: -box.minY) }
+        // Only where the translation ran past its own paragraph: at the border
+        // two neighbours meet halfway, and holes there would leave a gap both ways.
+        let others = around.filter { box.intersects($0) && !covered.intersects($0) }
+            .map { $0.insetBy(dx: -1, dy: -1).offsetBy(dx: -box.minX, dy: -box.minY) }
         guard let image = Self.render(text, in: frame.offsetBy(dx: -box.minX, dy: -box.minY), size: box.size,
                                       background: Self.color(background), holes: others) else { return nil }
-        return Patch(id: id, box: box, image: image)
+        return Patch(id: id, box: box, image: image, source: paragraph.box)
     }
 
     /// The original with every patch laid over it, as `--snap` writes it out.
