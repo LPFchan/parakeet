@@ -164,6 +164,7 @@ final class SnapView: NSView {
             scale = shrink + (1 - shrink) * eased
             shader.intro = Float(1 - eased)
             shader.spawn = Float(1 - eased)
+            shader.pace = 1  // what's left flies off as it closes
             if c >= 1, let done = whenClosed {
                 whenClosed = nil
                 shader.invalidate()
@@ -176,8 +177,11 @@ final class SnapView: NSView {
             let x = 1 - exp(-zeta * omega * t) * (cos(damped * t) + zeta * omega / damped * sin(damped * t))
             scale = 1 + (shrink - 1) * x
             shader.intro = Float(min(max((t - 0.1) / 1.5, 0), 1))
-            // A big echo as it lands, then the steady pulse.
+            // A big echo as it lands; then time slows almost to a stop, so
+            // the echoes hang still instead of pulsing on.
             shader.spawn = Float(min(t / 0.3, 1) + 3 * exp(-pow((t - 0.35) / 0.22, 2)))
+            let calm = min(max((t - 1.0) / 1.2, 0), 1)
+            shader.pace = Float(1 - 0.96 * calm * calm * (3 - 2 * calm))
         }
         let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
         shader.rect = CGRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)

@@ -33,6 +33,8 @@ final class ShaderLayer: CAMetalLayer {
     var rect = CGRect.zero
     var intro: Float = 0
     var spawn: Float = 0
+    /// How fast time runs for the particles: 1 is live, near 0 holds them still.
+    var pace: Float = 1
     var mouse = CGPoint.zero
     var onFrame: (CFTimeInterval) -> Void = { _ in }
 
@@ -115,11 +117,12 @@ final class ShaderLayer: CAMetalLayer {
 
     @objc private func tick(_ link: CADisplayLink) {
         let now = link.timestamp
-        let dt = Float(last == 0 ? 1.0 / 60 : min(now - last, 1.0 / 20))
+        let real = Float(last == 0 ? 1.0 / 60 : min(now - last, 1.0 / 20))
         last = now
-        clock += dt
         frameNumber &+= 1
         onFrame(now)
+        let dt = real * pace
+        clock += dt
         draw(dt: dt)
     }
 
@@ -129,7 +132,7 @@ final class ShaderLayer: CAMetalLayer {
         var u = Uniforms(rect: SIMD4(Float(rect.minX), Float(rect.minY), Float(rect.width), Float(rect.height)),
                          view: SIMD2(Float(view.width), Float(view.height)),
                          mouse: SIMD2(Float(mouse.x), Float(mouse.y)),
-                         time: clock, dt: dt, intro: intro, spawn: spawn,
+                         time: clock, dt: dt, intro: intro, spawn: spawn * pace,  // as many as ever, in slower time
                          band: band, corner: corner, depth: Float(view.height) * 1.87, scale: Float(contentsScale),
                          mode: effect.mode, count: UInt32(count), frame: frameNumber, cols: UInt32(cols))
         let size = MemoryLayout<Uniforms>.stride
