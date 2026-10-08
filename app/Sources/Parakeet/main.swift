@@ -379,7 +379,7 @@ if commands.count >= 3, commands[0] == "--snap" {
     job.read()
     Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
         guard job.done else { return }
-        try! NSBitmapImageRep(cgImage: job.image).representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: commands[2]))
+        try! NSBitmapImageRep(cgImage: Painter.compose(job.patches, over: job.image)!).representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: commands[2]))
         print(String(format: "%.2f s", Date().timeIntervalSince(started)))
         exit(0)
     }

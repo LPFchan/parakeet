@@ -6,12 +6,13 @@ import SwiftUI
 import Translation
 import Vision
 
-/// ⇧⌘1: drag over part of the screen and its text is repainted, in place,
-/// in the language captions translate into. Reading, translating and drawing
-/// all happen on this Mac.
+/// ⇧⌘1: point at text on screen (or drag over an area) and it's repainted,
+/// in place, in the language captions translate into. Reading, translating
+/// and drawing all happen on this Mac.
 final class SnapTranslate: NSObject {
     private let target: () async -> Locale.Language
     private var selection: SelectionPanel?
+    private var busy = false
     private var overlay: OverlayPanel?
 
     init(target: @escaping () async -> Locale.Language) {
@@ -32,14 +33,40 @@ final class SnapTranslate: NSObject {
     @objc func start() {
         overlay?.close()
         overlay = nil
-        guard selection == nil, Self.canCapture() else { return }
+        guard !busy, Self.canCapture() else { return }
+        busy = true
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main!
-        // Kept until the capture is in, so a second ⇧⌘1 can't overtake it.
-        selection = SelectionPanel(screen: screen) { [weak self] rect in
-            guard let rect else { self?.selection = nil; return }
-            Task { @MainActor in
-                await self?.translate(rect, on: screen)
-                self?.selection = nil
+        let pick = SnapPick.current
+        Task { @MainActor in
+            // The whole screen is captured before the sheet goes up: macOS may
+            // first ask to allow the capture, and the sheet would cover its dialog.
+            let image = pick == .drag ? nil : try? await Self.capture(screen.frame, on: screen)
+            let panel = SelectionPanel(screen: screen, canDrag: pick != .point) { [weak self] picked in
+                guard let (rect, trim) = picked else { self?.selection = nil; self?.busy = false; return }
+                Task { @MainActor in
+                    await self?.translate(rect, trimmingEdges: trim, on: screen)
+                    self?.selection = nil
+                    self?.busy = false  // only now, so a second ⇧⌘1 can't overtake the capture
+                }
+            }
+            selection = panel
+            guard let image else { return panel.blocks = [] }
+            // Find the text on the whole screen, so each block can light up under
+            // the pointer. Only where it is, not what it says: that takes a
+            // fraction of the time, in any script.
+            let scale = screen.backingScaleFactor, height = screen.frame.height
+            let blocks = await Task.detached {
+                let request = VNDetectTextRectanglesRequest()
+                try? VNImageRequestHandler(cgImage: image).perform([request])
+                let lines = (request.results ?? []).map { observation in
+                    let box = VNImageRectForNormalizedRect(observation.boundingBox, image.width, image.height)
+                    return Line(text: "", box: CGRect(x: box.minX, y: CGFloat(image.height) - box.maxY, width: box.width, height: box.height))
+                }
+                return Paragraph.group(lines).map { ($0.box, $0.lineHeight) }
+            }.value
+            panel.blocks = blocks.map { box, lineHeight in
+                TextBlock(rect: CGRect(x: box.minX / scale, y: height - box.maxY / scale, width: box.width / scale, height: box.height / scale),
+                          lineHeight: lineHeight / scale)
             }
         }
     }
@@ -57,9 +84,9 @@ final class SnapTranslate: NSObject {
         return false
     }
 
-    @MainActor private func translate(_ rect: CGRect, on screen: NSScreen) async {
+    @MainActor private func translate(_ rect: CGRect, trimmingEdges trim: Bool, on screen: NSScreen) async {
         guard let image = try? await Self.capture(rect, on: screen) else { return NSSound.beep() }
-        let job = SnapJob(image: image, scale: screen.backingScaleFactor, target: await target())
+        let job = SnapJob(image: image, scale: screen.backingScaleFactor, target: await target(), trimmingEdges: trim)
         let panel = OverlayPanel(frame: rect, job: job)
         job.onFail = { [weak self, weak panel] in
             NSSound.beep()
@@ -89,30 +116,51 @@ final class SnapTranslate: NSObject {
     }
 }
 
+/// How ⇧⌘1 picks its text; `defaults write plus.lost.parakeet snapPick point|drag` while trying them out.
+enum SnapPick: String {
+    case both, point, drag
+    static var current: SnapPick { SnapPick(rawValue: UserDefaults.standard.string(forKey: "snapPick") ?? "") ?? .both }
+}
+
+/// How the translation arrives; `defaults write plus.lost.parakeet snapReveal shimmer|morph` while trying them out.
+enum SnapReveal: String {
+    case ink, shimmer, morph
+    static var current: SnapReveal { SnapReveal(rawValue: UserDefaults.standard.string(forKey: "snapReveal") ?? "") ?? .ink }
+}
+
 /// One snap: the captured image, its text read into paragraphs, and those
-/// translated and painted back over the image.
+/// translated into patches laid back over the image.
 @Observable
 final class SnapJob {
-    private(set) var image: CGImage
-    private(set) var done = false
+    let image: CGImage
+    /// The lines as they're read, for the glow that follows them while translating.
+    private(set) var lines: [Line] = []
+    private(set) var patches: [Patch] = []
+    var closing = false
+    var done: Bool { !patches.isEmpty }
     /// One language at a time, once the text's languages are known; each starts `.translationTask` again.
     private(set) var configuration: TranslationSession.Configuration?
     @ObservationIgnored let scale: CGFloat
     @ObservationIgnored var onFail: () -> Void = {}
     @ObservationIgnored private let target: Locale.Language
+    @ObservationIgnored private let trimmingEdges: Bool
     @ObservationIgnored private var paragraphs: [Paragraph] = []
     @ObservationIgnored private var sources: [Locale.Language] = []
 
-    init(image: CGImage, scale: CGFloat, target: Locale.Language) {
+    /// `trimmingEdges`: the area was cut generously around a block, so a line
+    /// it cuts through belongs to some other text and is left alone.
+    init(image: CGImage, scale: CGFloat, target: Locale.Language, trimmingEdges: Bool = false) {
         self.image = image
         self.scale = scale
         self.target = target
+        self.trimmingEdges = trimmingEdges
     }
 
     func read() {
-        let image = image
+        let image = image, whole = CGRect(x: 0, y: 0, width: image.width, height: image.height).insetBy(dx: 2, dy: 2)
         Task.detached { [self] in
-            let lines = Self.lines(in: image)
+            let lines = Self.lines(in: image).filter { !trimmingEdges || whole.contains($0.box) }
+            await MainActor.run { self.lines = lines }
             let paragraphs = Paragraph.group(lines)
             let written = paragraphs.filter { $0.text.contains(where: \.isLetter) }  // not just numbers
             let dominant = Self.language(of: written.map(\.text).joined(separator: "\n"))
@@ -148,11 +196,10 @@ final class SnapJob {
         }
         sources.removeFirst()
         if let next = sources.first { return configuration = .init(source: next, target: target) }
-        guard paragraphs.contains(where: { !$0.translation.isEmpty }) else { return onFail() }
         let original = image, translated = paragraphs
-        guard let painted = await Task.detached(operation: { Painter.paint(translated, over: original) }).value else { return onFail() }
-        self.image = painted
-        done = true
+        let patches = await Task.detached(operation: { Painter.patches(translated, over: original) }).value
+        guard !patches.isEmpty else { return onFail() }
+        self.patches = patches
     }
 
     /// Text lines in pixels, top-left origin, in reading order.
@@ -217,28 +264,36 @@ struct Paragraph {
     }
 }
 
-/// Covers each paragraph with the colour around it and writes its
-/// translation there, in the original's text colour, as large as fits.
+/// One paragraph's translation, ready to lay over the original: its box
+/// filled with the colour around it and the translation written in the
+/// original's text colour. Pixels, top-left origin.
+struct Patch: Identifiable {
+    let id: Int
+    let box: CGRect
+    let image: CGImage
+    let text: String
+    let fontSize: CGFloat
+    /// Where the text sits inside the patch.
+    let textFrame: CGRect
+    let ink: NSColor
+    let background: NSColor
+}
+
 enum Painter {
-    static func paint(_ paragraphs: [Paragraph], over image: CGImage) -> CGImage? {
+    static func patches(_ paragraphs: [Paragraph], over image: CGImage) -> [Patch] {
         let width = image.width, height = image.height
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
                                       space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return [] }
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        // Read pixels from a copy: the context is painted over as we go.
-        guard let source = context.makeImage(), let pixels = source.dataProvider?.data as Data? else { return nil }
+        guard let pixels = context.makeImage()?.dataProvider?.data as Data? else { return [] }
         func pixel(_ x: Int, _ y: Int) -> SIMD3<Double> {
             let i = (min(max(y, 0), height - 1) * width + min(max(x, 0), width - 1)) * 4
             return SIMD3(Double(pixels[i]), Double(pixels[i + 1]), Double(pixels[i + 2])) / 255
         }
 
-        NSGraphicsContext.saveGraphicsState()
-        // Flipped, so rectangles count from the top like Vision's boxes do.
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
-        context.translateBy(x: 0, y: CGFloat(height))
-        context.scaleBy(x: 1, y: -1)
-        for paragraph in paragraphs where !paragraph.translation.isEmpty {
+        return paragraphs.enumerated().compactMap { id, paragraph in
+            guard !paragraph.translation.isEmpty else { return nil }
             let pad = (paragraph.lineHeight * 0.2).rounded()
             let box = paragraph.box.insetBy(dx: -pad, dy: -pad).intersection(CGRect(x: 0, y: 0, width: width, height: height)).integral
             // The background: the most common colour on the box's edge.
@@ -257,31 +312,57 @@ enum Painter {
             var ink = far.reduce(.zero, +) / Double(far.count)
             if distance(ink, background) < 0.3 { ink = luminance(background) > 0.5 ? .zero : .one }
 
-            context.setFillColor(color(background).cgColor)
-            context.fill(box)
-            let text = NSAttributedString(string: paragraph.translation, attributes: [.foregroundColor: color(ink)])
-            draw(text, in: box.insetBy(dx: pad, dy: pad / 2), size: paragraph.lineHeight * 0.8)
+            let inner = CGRect(x: pad, y: pad / 2, width: box.width - pad * 2, height: box.height - pad)
+            let (text, fontSize, textFrame) = fit(paragraph.translation, color: color(ink), in: inner, size: paragraph.lineHeight * 0.8)
+            guard let patch = render(text, in: textFrame, size: box.size, background: color(background)) else { return nil }
+            return Patch(id: id, box: box, image: patch, text: paragraph.translation, fontSize: fontSize,
+                         textFrame: textFrame, ink: color(ink), background: color(background))
         }
-        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    /// The original with every patch laid over it, as `--snap` writes it out.
+    static func compose(_ patches: [Patch], over image: CGImage) -> CGImage? {
+        let width = image.width, height = image.height
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        for patch in patches {
+            context.draw(patch.image, in: CGRect(x: patch.box.minX, y: CGFloat(height) - patch.box.maxY, width: patch.box.width, height: patch.box.height))
+        }
         return context.makeImage()
     }
 
     /// The original's size, or smaller until it fits; centred when it's one line.
-    private static func draw(_ text: NSAttributedString, in box: CGRect, size: CGFloat) {
-        var size = size, fitted = text, bounds = CGRect.zero
+    private static func fit(_ string: String, color: NSColor, in box: CGRect, size: CGFloat) -> (NSAttributedString, CGFloat, CGRect) {
+        var size = size / 0.92, fitted = NSAttributedString(), bounds = CGRect.zero
         repeat {
+            size *= 0.92
             let style = NSMutableParagraphStyle()
             style.lineBreakMode = .byWordWrapping
             style.lineBreakStrategy = .hangulWordPriority  // Korean breaks between words, not syllables
-            let attributed = NSMutableAttributedString(attributedString: text)
-            attributed.addAttributes([.font: NSFont.systemFont(ofSize: size, weight: .medium), .paragraphStyle: style],
-                                     range: NSRange(location: 0, length: text.length))
-            fitted = attributed
+            fitted = NSAttributedString(string: string, attributes: [.font: NSFont.systemFont(ofSize: size, weight: .medium),
+                                                                     .foregroundColor: color, .paragraphStyle: style])
             bounds = fitted.boundingRect(with: CGSize(width: box.width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin])
-            size *= 0.92
         } while bounds.height > box.height && size > 6
         let top = box.minY + max(0, (box.height - bounds.height) / 2)
-        fitted.draw(with: CGRect(x: box.minX, y: top, width: box.width, height: box.maxY - top), options: [.usesLineFragmentOrigin])
+        return (fitted, size, CGRect(x: box.minX, y: top, width: box.width, height: ceil(bounds.height)))
+    }
+
+    private static func render(_ text: NSAttributedString, in frame: CGRect, size: CGSize, background: NSColor) -> CGImage? {
+        guard let context = CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        // Flipped, so rectangles count from the top like Vision's boxes do.
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        context.translateBy(x: 0, y: size.height)
+        context.scaleBy(x: 1, y: -1)
+        context.setFillColor(background.cgColor)
+        context.fill(CGRect(origin: .zero, size: size))
+        text.draw(with: frame, options: [.usesLineFragmentOrigin])
+        NSGraphicsContext.restoreGraphicsState()
+        return context.makeImage()
     }
 
     private static func mode(_ colors: [SIMD3<Double>]) -> SIMD3<Double> {
@@ -296,21 +377,36 @@ enum Painter {
     private static func color(_ c: SIMD3<Double>) -> NSColor { NSColor(srgbRed: c.x, green: c.y, blue: c.z, alpha: 1) }
 }
 
-/// A dimmed screen to drag a rectangle across. Esc or a click without a drag cancels.
-final class SelectionPanel: NSPanel {
-    private let done: (CGRect?) -> Void
-    private let view = SelectionView()
+/// The glow the snap is drawn in: a cool, pale blue that shows on light and dark pages alike.
+private let glow = NSColor(srgbRed: 0.45, green: 0.68, blue: 1, alpha: 1)
 
-    init(screen: NSScreen, done: @escaping (CGRect?) -> Void) {
+/// A clear sheet over the screen. The block of text under the pointer lights
+/// up and a click picks it; a drag picks an area. Esc, or a click on nothing, cancels.
+final class SelectionPanel: NSPanel {
+    private let done: ((CGRect, trim: Bool)?) -> Void
+    private let view: SelectionView
+    /// The screen's blocks of text in view coordinates; nil while it's still being read.
+    var blocks: [TextBlock]? {
+        get { view.blocks }
+        set { view.blocks = newValue }
+    }
+
+    /// `done` gets the area to read, in screen coordinates, and whether it was cut
+    /// generously around a block; nil if cancelled.
+    init(screen: NSScreen, canDrag: Bool, done: @escaping ((CGRect, trim: Bool)?) -> Void) {
         self.done = done
+        view = SelectionView(frame: CGRect(origin: .zero, size: screen.frame.size), canDrag: canDrag)
         super.init(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         level = .screenSaver
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         backgroundColor = .clear
         isOpaque = false
         hasShadow = false
+        ignoresMouseEvents = false  // clicks on the clear sheet are ours, not the app's beneath
         contentView = view
-        view.onDone = { [weak self] rect in self?.finish(rect.map { $0.offsetBy(dx: screen.frame.minX, dy: screen.frame.minY) }) }
+        view.onDone = { [weak self] picked in
+            self?.finish(picked.map { ($0.offsetBy(dx: screen.frame.minX, dy: screen.frame.minY).intersection(screen.frame), $1) })
+        }
         makeKeyAndOrderFront(nil)
         NSCursor.crosshair.push()
     }
@@ -318,69 +414,309 @@ final class SelectionPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override func cancelOperation(_ sender: Any?) { finish(nil) }
 
-    private func finish(_ rect: CGRect?) {
+    private func finish(_ picked: (CGRect, trim: Bool)?) {
         NSCursor.pop()
         orderOut(nil)
-        done(rect.flatMap { $0.width >= 8 && $0.height >= 8 ? $0 : nil })
+        done(picked.flatMap { $0.0.width >= 8 && $0.0.height >= 8 ? $0 : nil })
     }
 }
 
+/// A block of text found on screen, in view coordinates.
+struct TextBlock {
+    let rect: CGRect
+    let lineHeight: CGFloat
+}
+
 private final class SelectionView: NSView {
-    var onDone: (CGRect?) -> Void = { _ in }
+    var onDone: ((CGRect, trim: Bool)?) -> Void = { _ in }
+    var blocks: [TextBlock]? { didSet { if blocks != nil { read() } } }
+    private let canDrag: Bool
     private var start: CGPoint?
-    private var rect: CGRect? { didSet { needsDisplay = true } }
+    private var dragging = false
+    private var hovered: TextBlock?
+    /// The glowing outline that glides from block to block, and stretches as an area is dragged.
+    private let lens = CALayer()
+    /// A band of light that sweeps down the screen while it's being read.
+    private let scan = CAGradientLayer()
+
+    init(frame: CGRect, canDrag: Bool) {
+        self.canDrag = canDrag
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.04).cgColor
+        lens.cornerRadius = 8
+        lens.borderWidth = 1.5
+        lens.borderColor = NSColor.white.withAlphaComponent(0.95).cgColor
+        lens.backgroundColor = glow.withAlphaComponent(0.12).cgColor
+        lens.shadowColor = glow.cgColor
+        lens.shadowRadius = 14
+        lens.shadowOpacity = 1
+        lens.shadowOffset = .zero
+        lens.opacity = 0
+        layer?.addSublayer(lens)
+        scan.colors = [NSColor.clear, glow.withAlphaComponent(0.16), NSColor.clear].map(\.cgColor)
+        scan.frame = CGRect(x: 0, y: frame.height, width: frame.width, height: 240)
+        layer?.addSublayer(scan)
+        let sweep = CABasicAnimation(keyPath: "position.y")
+        sweep.fromValue = frame.height + 120
+        sweep.toValue = -120
+        sweep.duration = 1.1
+        sweep.repeatCount = .infinity
+        sweep.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        scan.add(sweep, forKey: "sweep")
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func resetCursorRects() { addCursorRect(bounds, cursor: .crosshair) }
 
+    /// The screen has been read: the sweep fades, and from now on whatever is
+    /// under the pointer lights up. The pointer is followed by its position,
+    /// not mouse-moved events, which a sheet over another app doesn't reliably get.
+    private func read() {
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.4)
+        scan.opacity = 0
+        CATransaction.commit()
+        Timer.scheduledTimer(withTimeInterval: 1 / 60, repeats: true) { [weak self] timer in
+            guard let self, let window, window.isVisible else { return timer.invalidate() }
+            if !dragging { hover(at: convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)) }
+        }
+    }
+
+    private func hover(at point: CGPoint) {
+        let block = blocks?.first { $0.rect.insetBy(dx: -8, dy: -8).contains(point) }
+        guard block?.rect != hovered?.rect else { return }
+        hovered = block
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.22)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        if let block { lens.frame = block.rect.insetBy(dx: -8, dy: -8) }
+        lens.opacity = block == nil ? 0 : 1
+        CATransaction.commit()
+    }
+
     override func mouseDown(with event: NSEvent) { start = convert(event.locationInWindow, from: nil) }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let start else { return }
+        guard canDrag, let start else { return }
         let point = convert(event.locationInWindow, from: nil)
-        rect = CGRect(x: min(start.x, point.x), y: min(start.y, point.y), width: abs(point.x - start.x), height: abs(point.y - start.y)).integral
+        if !dragging, hypot(point.x - start.x, point.y - start.y) < 4 { return }
+        dragging = true
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)  // the outline follows the pointer exactly
+        lens.frame = CGRect(x: min(start.x, point.x), y: min(start.y, point.y), width: abs(point.x - start.x), height: abs(point.y - start.y)).integral
+        lens.opacity = 1
+        CATransaction.commit()
     }
 
-    override func mouseUp(with event: NSEvent) { onDone(rect) }
-
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.black.withAlphaComponent(0.2).setFill()
-        bounds.fill()
-        guard let rect else { return }
-        rect.fill(using: .clear)
-        NSColor.white.setStroke()
-        NSBezierPath(rect: rect.insetBy(dx: -0.5, dy: -0.5)).stroke()
+    override func mouseUp(with event: NSEvent) {
+        if dragging { return onDone((lens.frame, false)) }
+        // The quick look can miss a short last line, so read well around the
+        // block; whatever the edges cut through is left out.
+        onDone(hovered.map { ($0.rect.insetBy(dx: -$0.lineHeight, dy: -$0.lineHeight * 2), true) })
     }
 }
 
-/// The translated image, laid exactly over the area it came from. A click or Esc closes it.
+/// The translation, laid exactly over the area it came from. A click or Esc
+/// melts it back into the original.
 final class OverlayPanel: NSPanel {
+    private let job: SnapJob
+
     init(frame: CGRect, job: SnapJob) {
+        self.job = job
         super.init(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         level = .statusBar
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        hasShadow = true
+        backgroundColor = .clear
+        isOpaque = false
+        hasShadow = false  // no card: the page itself seems to change language
         isReleasedWhenClosed = false
-        contentView = NSHostingView(rootView: OverlayView(job: job) { [weak self] in self?.close() })
+        contentView = NSHostingView(rootView: OverlayView(job: job, reveal: .current) { [weak self] in self?.dismiss() })
     }
 
     override var canBecomeKey: Bool { true }
-    override func cancelOperation(_ sender: Any?) { close() }
+    override func cancelOperation(_ sender: Any?) { dismiss() }
+
+    private func dismiss() {
+        guard job.done, !job.closing else { return close() }
+        job.closing = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.close() }
+    }
 }
 
 private struct OverlayView: View {
     let job: SnapJob
+    let reveal: SnapReveal
     let close: () -> Void
 
     var body: some View {
-        Image(decorative: job.image, scale: job.scale)
-            .resizable()
-            .overlay(alignment: .topTrailing) {
-                if !job.done { ProgressView().controlSize(.small).padding(6) }
+        ZStack(alignment: .topLeading) {
+            Image(decorative: job.image, scale: job.scale)
+            if job.done {
+                PatchesView(patches: job.patches, scale: job.scale, reveal: reveal, closing: job.closing)
+            } else {
+                ReadingGlow(lines: job.lines, scale: job.scale).transition(.opacity)
             }
-            .contentShape(.rect)
-            .onTapGesture(perform: close)
-            .translationTask(job.configuration) { session in await job.run(session) }
+        }
+        .animation(.easeOut(duration: 0.35), value: job.done)
+        .contentShape(.rect)
+        .onTapGesture(perform: close)
+        .translationTask(job.configuration) { session in await job.run(session) }
+    }
+}
+
+/// While it translates, a soft light runs along each line in reading order, like an eye reading it.
+private struct ReadingGlow: View {
+    let lines: [Line]
+    let scale: CGFloat
+
+    var body: some View {
+        TimelineView(.animation) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            ZStack(alignment: .topLeading) {
+                ForEach(lines.indices, id: \.self) { i in
+                    let box = lines[i].box
+                    let phase = (t * 0.8 - Double(i) * 0.15).truncatingRemainder(dividingBy: 1.6) - 0.3
+                    RoundedRectangle(cornerRadius: box.height / scale * 0.3)
+                        .fill(LinearGradient(stops: [.init(color: .clear, location: 0),
+                                                     .init(color: Color(nsColor: glow).opacity(0.5), location: min(max(phase, 0.01), 0.99)),
+                                                     .init(color: .clear, location: 1)],
+                                             startPoint: .leading, endPoint: .trailing))
+                        .blur(radius: 3)
+                        .frame(width: box.width / scale + 8, height: box.height / scale + 4)
+                        .offset(x: box.minX / scale - 4, y: box.minY / scale - 2)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+private struct PatchesView: View {
+    let patches: [Patch]
+    let scale: CGFloat
+    let reveal: SnapReveal
+    let closing: Bool
+    @State private var shown = false
+    @State private var sweep: CGFloat = 0
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            ZStack(alignment: .topLeading) {
+                ForEach(Array(patches.enumerated()), id: \.element.id) { i, patch in
+                    piece(patch, order: i)
+                        .frame(width: patch.box.width / scale, height: patch.box.height / scale)
+                        .offset(x: patch.box.minX / scale, y: patch.box.minY / scale)
+                        // Dissolving away: each melts back into the original, the last first.
+                        .opacity(closing ? 0 : 1)
+                        .blur(radius: closing ? 8 : 0)
+                        .animation(.easeIn(duration: 0.3).delay(closing ? Double(patches.count - 1 - i) * 0.05 : 0), value: closing)
+                }
+            }
+            .frame(width: width, height: geometry.size.height, alignment: .topLeading)
+            .mask(alignment: .leading) {
+                if reveal == .shimmer {
+                    // Everything left of the band has changed language.
+                    HStack(spacing: 0) {
+                        Rectangle().frame(width: max(0, sweep * (width + 80) - 80))
+                        LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 80)
+                        Spacer(minLength: 0)
+                    }
+                } else {
+                    Rectangle()
+                }
+            }
+            .overlay(alignment: .leading) {
+                if reveal == .shimmer {
+                    LinearGradient(colors: [.clear, Color(nsColor: glow).opacity(0.75), .clear], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: 90)
+                        .blur(radius: 6)
+                        .offset(x: sweep * (width + 80) - 85)
+                        .opacity(sweep < 1 ? 1 : 0)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+        .onAppear {
+            shown = true
+            withAnimation(.easeInOut(duration: 1.1)) { sweep = 1 }
+        }
+    }
+
+    @ViewBuilder private func piece(_ patch: Patch, order: Int) -> some View {
+        switch reveal {
+        case .ink:
+            // Each paragraph settles in like ink, top to bottom.
+            Image(decorative: patch.image, scale: scale)
+                .opacity(shown ? 1 : 0)
+                .blur(radius: shown ? 0 : 6)
+                .scaleEffect(shown ? 1 : 1.04)
+                .animation(.easeOut(duration: 0.55).delay(Double(order) * 0.1), value: shown)
+        case .shimmer:
+            Image(decorative: patch.image, scale: scale)
+        case .morph:
+            MorphPiece(patch: patch, scale: scale, delay: Double(order) * 0.12)
+        }
+    }
+}
+
+/// The paragraph's letters tumble through their alphabet and settle, left to right, into the translation.
+private struct MorphPiece: View {
+    let patch: Patch
+    let scale: CGFloat
+    let delay: Double
+    private let duration = 0.9
+    @State private var start = Date()
+    @State private var settled = false
+
+    var body: some View {
+        if settled {
+            Image(decorative: patch.image, scale: scale)
+        } else {
+            TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+                let progress = (context.date.timeIntervalSince(start) - delay) / duration
+                ZStack(alignment: .topLeading) {
+                    Color(nsColor: patch.background)
+                    Text(scrambled(min(max(progress, 0), 1), tick: Int(context.date.timeIntervalSinceReferenceDate * 24)))
+                        .font(.system(size: patch.fontSize / scale, weight: .medium))
+                        .foregroundStyle(Color(nsColor: patch.ink))
+                        .frame(width: patch.textFrame.width / scale, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .offset(x: patch.textFrame.minX / scale, y: patch.textFrame.minY / scale)
+                }
+                .opacity(progress > 0 ? 1 : 0)
+            }
+            .task {
+                try? await Task.sleep(for: .seconds(delay + duration))
+                settled = true
+            }
+        }
+    }
+
+    private func scrambled(_ progress: Double, tick: Int) -> String {
+        let letters = Array(patch.text)
+        let done = Int(Double(letters.count) * progress)
+        var seed = UInt64(truncatingIfNeeded: tick &* 7919 &+ patch.id)
+        func random(_ range: ClosedRange<UInt32>) -> Character {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            let value = range.lowerBound + UInt32(truncatingIfNeeded: seed >> 33) % (range.upperBound - range.lowerBound + 1)
+            return Character(Unicode.Scalar(value)!)
+        }
+        return String(letters.enumerated().map { i, letter in
+            guard i >= done, let scalar = letter.unicodeScalars.first?.value else { return letter }
+            switch scalar {
+            case 0xAC00...0xD7A3: return random(0xAC00...0xD7A3)  // Hangul
+            case 0x4E00...0x9FFF: return random(0x4E00...0x9FFF)  // CJK
+            case 0x3041...0x30FF: return random(0x3041...0x3096)  // kana
+            case 0x61...0x7A: return random(0x61...0x7A)
+            case 0x41...0x5A: return random(0x41...0x5A)
+            case 0x30...0x39: return random(0x30...0x39)
+            default: return letter
+            }
+        })
     }
 }
 
