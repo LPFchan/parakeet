@@ -153,6 +153,7 @@ final class SnapView: NSView {
         addSubview(stripView)
         self.stripView = stripView
         strip.onShowAll = { [weak self] on in self?.showAll(on) }
+        strip.chipsWidth = max(160, frame.width - 760)  // what the pill, the question and the buttons leave
         strip.onDownload = { [weak self] chosen in self?.job.download(chosen) }
 
         job.onSketch = { [weak self] lines in self?.sketch(lines) }
@@ -346,7 +347,11 @@ final class SnapView: NSView {
         let caught = patches.filter { $0.source.intersects(pixels) }.sorted { $0.source.minY < $1.source.minY }
         for (i, patch) in caught.enumerated() where !pinned.contains(patch.id) {
             pinned.insert(patch.id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.05) { [weak self] in self?.ink(patch.id, in: true) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.05) { [weak self] in
+                // Unpinned meanwhile and not hovered: it stays hidden.
+                guard let self, !closing, pinned.contains(patch.id) || hovered == patch.id || strip.showAll else { return }
+                ink(patch.id, in: true)
+            }
         }
     }
 
@@ -545,6 +550,8 @@ final class Strip {
     }
     /// Languages to offer for download; nil when there's nothing to ask.
     var missing: [MissingLanguage]?
+    /// How wide the row of language chips may grow before it scrolls, to stay on screen.
+    var chipsWidth: CGFloat = 600
     /// The offered languages ticked for download.
     var chosen: Set<String> = []
     var closing = false
@@ -573,7 +580,7 @@ private struct StripView: View {
             }
             .buttonStyle(.plain)
             if let missing = strip.missing {
-                DownloadOffer(missing: missing, chosen: Binding(get: { strip.chosen }, set: { strip.chosen = $0 })) { chosen in
+                DownloadOffer(missing: missing, chosen: Binding(get: { strip.chosen }, set: { strip.chosen = $0 }), chipsWidth: strip.chipsWidth) { chosen in
                     withAnimation(.spring(duration: 0.34, bounce: 0)) { strip.missing = nil }
                     strip.chosen = []
                     strip.onDownload(chosen)
@@ -606,29 +613,35 @@ private struct Pill: ViewModifier {
 private struct DownloadOffer: View {
     let missing: [MissingLanguage]
     @Binding var chosen: Set<String>
+    let chipsWidth: CGFloat
     let done: ([Locale.Language]) -> Void
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "arrow.down.circle").font(.system(size: 15, weight: .medium)).foregroundStyle(.white.opacity(0.7))
             Text("Download languages to translate?").font(.system(size: 13, weight: .medium)).foregroundStyle(.white.opacity(0.85))
-            ForEach(missing) { language in
-                let on = chosen.contains(language.id)
-                Button {
-                    if on { chosen.remove(language.id) } else { chosen.insert(language.id) }
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: on ? "checkmark.circle.fill" : "circle").font(.system(size: 12))
-                        Text(Translator.name(language.language)).font(.system(size: 12, weight: .medium))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(missing) { language in
+                        let on = chosen.contains(language.id)
+                        Button {
+                            if on { chosen.remove(language.id) } else { chosen.insert(language.id) }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: on ? "checkmark.circle.fill" : "circle").font(.system(size: 12))
+                                Text(Translator.name(language.language)).font(.system(size: 12, weight: .medium))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .foregroundStyle(on ? .white : .white.opacity(0.55))
+                            .background(on ? Color.accentColor.opacity(0.55) : .white.opacity(0.08), in: .capsule)
+                        }
+                        .buttonStyle(.plain)
+                        .help("“\(language.sample)”")
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .foregroundStyle(on ? .white : .white.opacity(0.55))
-                    .background(on ? Color.accentColor.opacity(0.55) : .white.opacity(0.08), in: .capsule)
                 }
-                .buttonStyle(.plain)
-                .help("“\(language.sample)”")
             }
+            .frame(maxWidth: chipsWidth)
             Button("Not Now") { done([]) }
                 .buttonStyle(.plain)
                 .font(.system(size: 12, weight: .medium))
