@@ -269,17 +269,29 @@ private struct DoneStep: View {
             Symbol("checkmark.seal.fill")
             Header(title: "You're all set",
                    subtitle: "Captions appear at the bottom of your screen whenever something speaks. Drag the box anywhere you like.")
-            HStack(spacing: 10) {
-                Image(systemName: "captions.bubble")
-                    .font(.system(size: 15))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(.secondary.opacity(0.15), in: .rect(cornerRadius: 6))
-                Text("Parakeet lives in the menu bar. Click it to turn captions off (⌘L) or copy the transcript.")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
+            // Two tips, kept together: the menu bar, and ⇧⌘1.
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    Image(systemName: "captions.bubble")
+                        .font(.system(size: 15))
+                        .frame(width: 48, height: 26)  // both badges one size, so the tips line up
+                        .background(.secondary.opacity(0.15), in: .rect(cornerRadius: 6))
+                    Text("Parakeet lives in the menu bar. Click it to turn captions off (⌘L) or copy the transcript.")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: 440, alignment: .leading)
+                HStack(spacing: 10) {
+                    Text("⇧⌘1")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(width: 48, height: 26)
+                        .background(.secondary.opacity(0.15), in: .rect(cornerRadius: 6))
+                    Text("Press ⇧⌘1 to translate the text on your screen, right where it is.")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: 440, alignment: .leading)
             }
-            .frame(maxWidth: 440)
             Toggle("Open Parakeet when I log in", isOn: $openAtLogin)
                 .toggleStyle(.switch)
                 .tint(green)

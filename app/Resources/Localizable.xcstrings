@@ -7740,6 +7740,178 @@
           }
         }
       }
+    },
+    "Press ⇧⌘1 to translate the text on your screen, right where it is.": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اضغط ⇧⌘1 لترجمة النص على شاشتك في مكانه."
+          }
+        },
+        "bg": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Натиснете ⇧⌘1, за да преведете текста на екрана точно там, където е."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stisknutím ⇧⌘1 přeložíte text na obrazovce přímo na místě."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryk på ⇧⌘1 for at oversætte teksten på skærmen, lige hvor den står."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drücke ⇧⌘1, um den Text auf deinem Bildschirm direkt an Ort und Stelle zu übersetzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsa ⇧⌘1 para traducir el texto de tu pantalla justo donde está."
+          }
+        },
+        "et": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vajuta ⇧⌘1, et tõlkida ekraanil olev tekst otse oma kohal."
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paina ⇧⌘1 kääntääksesi näytön tekstin juuri siinä, missä se on."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appuyez sur ⇧⌘1 pour traduire le texte de votre écran, là où il se trouve."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "अपनी स्क्रीन के टेक्स्ट का वहीं अनुवाद करने के लिए ⇧⌘1 दबाएँ।"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pritisnite ⇧⌘1 da biste preveli tekst na zaslonu točno ondje gdje jest."
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyomd meg a ⇧⌘1-et, és a képernyőn lévő szöveg ott helyben lefordul."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premi ⇧⌘1 per tradurre il testo sullo schermo proprio dove si trova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⇧⌘1 を押すと、画面上のテキストをその場で翻訳できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⇧⌘1을 누르면 화면의 텍스트를 그 자리에서 번역합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trykk ⇧⌘1 for å oversette teksten på skjermen akkurat der den står."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Druk op ⇧⌘1 om de tekst op je scherm ter plekke te vertalen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naciśnij ⇧⌘1, aby przetłumaczyć tekst na ekranie dokładnie tam, gdzie jest."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pressione ⇧⌘1 para traduzir o texto da tela bem onde ele está."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prima ⇧⌘1 para traduzir o texto do ecrã exatamente onde está."
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apasă ⇧⌘1 pentru a traduce textul de pe ecran chiar acolo unde se află."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите ⇧⌘1, чтобы перевести текст на экране прямо на месте."
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stlačením ⇧⌘1 preložíte text na obrazovke priamo na mieste."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryck på ⇧⌘1 för att översätta texten på skärmen precis där den står."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekranınızdaki metni olduğu yerde çevirmek için ⇧⌘1’e basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Натисніть ⇧⌘1, щоб перекласти текст на екрані просто на місці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhấn ⇧⌘1 để dịch văn bản trên màn hình ngay tại chỗ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按 ⇧⌘1，即可在原处翻译屏幕上的文字。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
