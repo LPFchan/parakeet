@@ -154,7 +154,8 @@ final class SnapJob {
     /// Reads just this area (pixels) again, harder: twice the size, with the
     /// dictionary pass. For text the whole-screen read missed; returns how
     /// many new paragraphs it found to translate.
-    func force(_ area: CGRect) async -> Int {
+    /// On the main actor, like everything that touches the job's state; only the reading runs elsewhere.
+    @MainActor func force(_ area: CGRect) async -> Int {
         let image = image
         let area = area.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height)).integral
         guard area.width > 4, area.height > 4, let crop = image.cropping(to: area) else { return 0 }
