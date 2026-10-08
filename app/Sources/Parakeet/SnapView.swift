@@ -8,6 +8,9 @@ import SwiftUI
 final class SnapPanel: NSPanel {
     private let view: SnapView
     private let onClose: () -> Void
+    /// Pinches only go to the app in front, so Parakeet comes forward while
+    /// the picture is up and hands back to this one when it closes.
+    private let previous = NSWorkspace.shared.frontmostApplication
 
     init(screen: NSScreen, job: SnapJob, onClose: @escaping () -> Void) {
         view = SnapView(frame: CGRect(origin: .zero, size: screen.frame.size), job: job)
@@ -20,7 +23,8 @@ final class SnapPanel: NSPanel {
         isReleasedWhenClosed = false
         contentView = view
         view.onDismiss = { [weak self] in self?.dismiss() }
-        makeKeyAndOrderFront(nil)  // for Esc; a non-activating panel leaves the app in front as it is
+        makeKeyAndOrderFront(nil)
+        NSApp.activate()
         view.play()
     }
 
@@ -30,8 +34,10 @@ final class SnapPanel: NSPanel {
     func dismiss() {
         guard !view.closing else { return }
         view.finish { [weak self] in
-            self?.orderOut(nil)
-            self?.onClose()
+            guard let self else { return }
+            orderOut(nil)
+            if previous?.processIdentifier != ProcessInfo.processInfo.processIdentifier { previous?.activate() }
+            onClose()
         }
     }
 }
