@@ -20,8 +20,12 @@ leaves it.
   small underneath. That language is taken as your own: while the audio is
   in it, the box stays hidden. macOS asks once to download each language it
   needs.
+- ⇧⌘1 translates text on screen: drag over an area, and its text is
+  repainted in place, in the language captions translate into (or your
+  Mac's language when that's off). A click or Esc puts the original back.
+  macOS asks once for Screen Recording.
 - The menu bar icon has a Captions on/off switch (⌘L), Copy Transcript,
-  Translate To, Open at Login and Check for Updates. It checks for updates on every launch
+  Translate To, Translate Screen Area (⇧⌘1), Open at Login and Check for Updates. It checks for updates on every launch
   (and daily while running) and offers to install them.
 - The same switch works from a terminal:
 
@@ -56,6 +60,12 @@ audio permission and downloads the speech model (~640 MB) from Hugging Face.
   to Apple's Translation framework, naming the source language itself
   (`NaturalLanguage` detects it) so macOS doesn't stop to ask. Pieces of an
   unfinished sentence are re-translated together, shown dim until it ends.
+- `SnapTranslate.swift` is ⇧⌘1. It captures the dragged area with
+  ScreenCaptureKit, reads it with Vision, groups lines into paragraphs (a
+  sentence often wraps), translates each paragraph whole, then paints over it
+  with the colour around it and writes the translation in the text's own
+  colour, as large as fits. The result sits exactly over the area it came
+  from, so the screen seems to change language.
 
 ## Development
 
@@ -63,6 +73,7 @@ audio permission and downloads the speech model (~640 MB) from Hugging Face.
 scripts/build-app.sh          # → build/Parakeet.app
 open build/Parakeet.app
 build/Parakeet.app/Contents/MacOS/Parakeet --bench clip.wav   # 16 kHz float32 WAV
+open -n -W build/Parakeet.app --args --snap in.png out.png ko  # ⇧⌘1 on an image
 ```
 
 The interface is translated into the 28 languages Parakeet can caption, besides
