@@ -95,12 +95,13 @@ final class SnapTranslate: NSObject {
 final class SnapJob {
     private(set) var image: CGImage
     private(set) var done = false
-    /// Set once the text's language is known; starts `.translationTask`.
+    /// One language at a time, once the text's languages are known; each starts `.translationTask` again.
     private(set) var configuration: TranslationSession.Configuration?
     @ObservationIgnored let scale: CGFloat
     @ObservationIgnored var onFail: () -> Void = {}
     @ObservationIgnored private let target: Locale.Language
     @ObservationIgnored private var paragraphs: [Paragraph] = []
+    @ObservationIgnored private var sources: [Locale.LanguageCode] = []
 
     init(image: CGImage, scale: CGFloat, target: Locale.Language) {
         self.image = image
@@ -113,26 +114,41 @@ final class SnapJob {
         Task.detached { [self] in
             let lines = Self.lines(in: image)
             let paragraphs = Paragraph.group(lines)
-            // Text already in the target language, and numbers, stay as they are.
-            let foreign = paragraphs.filter { paragraph in
-                paragraph.text.contains(where: \.isLetter) && Self.language(of: paragraph.text) != target.languageCode
+            let written = paragraphs.filter { $0.text.contains(where: \.isLetter) }  // not just numbers
+            let dominant = Self.language(of: written.map(\.text).joined(separator: "\n"))
+            // A short paragraph is easily misread, so only a confident guess
+            // overrides the language of the area as a whole.
+            let foreign: [Paragraph] = written.compactMap { paragraph in
+                var paragraph = paragraph
+                paragraph.source = Self.language(of: paragraph.text, confidence: 0.8) ?? dominant
+                let native = Self.language(of: paragraph.text) == target.languageCode || paragraph.source == target.languageCode
+                return native || paragraph.source == nil ? nil : paragraph
             }
-            let source = Self.language(of: foreign.map(\.text).joined(separator: "\n"))
+            var sources: [Locale.LanguageCode] = []
+            for source in foreign.compactMap(\.source) where !sources.contains(source) { sources.append(source) }
             await MainActor.run {
-                guard let source, !foreign.isEmpty else { return onFail() }
+                guard !foreign.isEmpty else { return onFail() }
                 self.paragraphs = foreign
-                configuration = .init(source: Locale.Language(languageCode: source), target: target)
+                self.sources = sources
+                configuration = .init(source: Locale.Language(languageCode: sources[0]), target: target)
             }
         }
     }
 
     @MainActor func run(_ session: TranslationSession) async {
-        let requests = paragraphs.indices.map { TranslationSession.Request(sourceText: paragraphs[$0].text, clientIdentifier: "\($0)") }
-        guard let responses = try? await session.translations(from: requests) else { return onFail() }
+        guard let source = sources.first else { return }
+        let requests = paragraphs.indices.filter { paragraphs[$0].source == source }
+            .map { TranslationSession.Request(sourceText: paragraphs[$0].text, clientIdentifier: "\($0)") }
+        // A language that can't be translated is left as it was.
+        let responses = (try? await session.translations(from: requests)) ?? []
+        if Task.isCancelled { return }
         for response in responses {
             guard let i = response.clientIdentifier.flatMap(Int.init) else { continue }
             paragraphs[i].translation = response.targetText
         }
+        sources.removeFirst()
+        if let next = sources.first { return configuration = .init(source: Locale.Language(languageCode: next), target: target) }
+        guard paragraphs.contains(where: { !$0.translation.isEmpty }) else { return onFail() }
         let original = image, translated = paragraphs
         guard let painted = await Task.detached(operation: { Painter.paint(translated, over: original) }).value else { return onFail() }
         self.image = painted
@@ -153,8 +169,11 @@ final class SnapJob {
         }
     }
 
-    private static func language(of text: String) -> Locale.LanguageCode? {
-        NLLanguageRecognizer.dominantLanguage(for: text).map { Locale.Language(identifier: $0.rawValue).languageCode } ?? nil
+    private static func language(of text: String, confidence: Double = 0) -> Locale.LanguageCode? {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        guard let (language, sure) = recognizer.languageHypotheses(withMaximum: 1).first, sure >= confidence else { return nil }
+        return Locale.Language(identifier: language.rawValue).languageCode
     }
 }
 
@@ -168,6 +187,7 @@ struct Line {
 /// wraps across lines.
 struct Paragraph {
     var lines: [Line]
+    var source: Locale.LanguageCode?
     var translation = ""
 
     var box: CGRect { lines.dropFirst().reduce(lines[0].box) { $0.union($1.box) } }

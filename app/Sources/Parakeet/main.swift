@@ -43,9 +43,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                           onCopy: { [weak self] in self?.copyTranscript() })
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let tap = SystemAudioTap()
-    // Into the captions' language, else the user's own.
+    // Into the captions' language, else the user's own if Translation knows it, else English.
     private lazy var snap = SnapTranslate { [translator] in
-        translator.target ?? Locale.Language(identifier: Locale.preferredLanguages.first ?? "en")
+        translator.target ?? translator.languages.first { $0.languageCode == Locale.current.language.languageCode }
+            ?? Locale.Language(identifier: "en")
     }
     private lazy var updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: self)
     private var engine: Engine?
