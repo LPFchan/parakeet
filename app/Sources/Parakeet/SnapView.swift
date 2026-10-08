@@ -61,8 +61,9 @@ final class SnapView: NSView {
     private var marks: [Int: CALayer] = [:]
     private var hovered: Int?
     private var pinned: Set<Int> = []
-    /// Areas dragged over before the translations were in.
-    private var waiting: [CGRect] = []
+    /// Areas dragged over: everything in them stays translated, including what arrives later.
+    private var dragged: [CGRect] = []
+    private var card: NSView?
     private var dragStart: CGPoint?
     private var dragging = false
     private var follow: Timer?
@@ -121,11 +122,13 @@ final class SnapView: NSView {
         lens.opacity = 0
         picture.addSublayer(lens)
 
+        // macOS's own download prompt hangs off this, so it sits in the middle.
         let host = NSHostingView(rootView: TranslationHost(job: job))
-        host.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
+        host.frame = CGRect(x: frame.midX, y: frame.midY, width: 1, height: 1)
         addSubview(host)
 
         job.onReady = { [weak self] patches in self?.read(patches) }
+        job.onMissing = { [weak self] missing in self?.offer(missing) }
         job.onFail = { NSSound.beep() }  // and it stays unlit
     }
 
@@ -147,7 +150,8 @@ final class SnapView: NSView {
 
     /// The translations are in: the picture lights up, and each waits, unseen, over its paragraph.
     private func read(_ patches: [Patch]) {
-        self.patches = patches
+        let first = self.patches.isEmpty
+        self.patches += patches
         for patch in patches {
             let ink = CALayer()
             ink.contents = patch.image
@@ -171,8 +175,10 @@ final class SnapView: NSView {
             marks[patch.id] = mark
         }
         guard !closing else { return }
-        spring(glow, "opacity", to: 1)
-        spring(glow, "transform.scale", to: 1, from: 0.97)
+        if first {
+            spring(glow, "opacity", to: 1)
+            spring(glow, "transform.scale", to: 1, from: 0.97)
+        }
         // The marks come up with the glow, top to bottom.
         for (i, patch) in patches.sorted(by: { $0.box.minY < $1.box.minY }).enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.02) { [weak self] in
@@ -180,9 +186,25 @@ final class SnapView: NSView {
                 spring(mark, "opacity", to: 1)
             }
         }
-        for area in waiting { pin(in: area) }
-        waiting = []
+        for area in dragged { pin(in: area) }
         hovered = nil
+    }
+
+    /// Some languages on screen aren't downloaded yet: a card asks which to get.
+    private func offer(_ missing: [MissingLanguage]) {
+        guard !closing else { return }
+        let card = NSHostingView(rootView: DownloadCard(missing: missing) { [weak self] chosen in
+            guard let self else { return }
+            self.card?.removeFromSuperview()
+            self.card = nil
+            job.download(chosen)
+        })
+        card.sizingOptions = [.intrinsicContentSize]
+        addSubview(card)
+        card.layoutSubtreeIfNeeded()
+        let size = card.fittingSize
+        card.frame = CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height)
+        self.card = card
     }
 
     private func track() {
@@ -242,7 +264,8 @@ final class SnapView: NSView {
             let area = lens.frame
             spring(lens, "opacity", to: 0)
             hovered = nil
-            return patches.isEmpty ? waiting.append(area) : pin(in: area)
+            dragged.append(area)
+            return pin(in: area)
         }
         guard pictureFrame.contains(point) else { return onDismiss() }
         // A click keeps the paragraph under the pointer translated, or lets it go.
@@ -315,5 +338,71 @@ final class SnapView: NSView {
             .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.9, kCIInputBrightnessKey: 0.1])
             .cropped(to: area)
         return CIContext().createCGImage(glow, from: area)
+    }
+}
+
+/// Asks which missing languages to download, before macOS asks for permission.
+private struct DownloadCard: View {
+    let missing: [MissingLanguage]
+    let done: ([Locale.Language]) -> Void
+    @State private var chosen: Set<String>
+    @State private var shown = false
+
+    init(missing: [MissingLanguage], done: @escaping ([Locale.Language]) -> Void) {
+        self.missing = missing
+        self.done = done
+        _chosen = State(initialValue: Set(missing.filter(\.likely).map(\.id)))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Download languages to translate?").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                Text("Parakeet translates on this Mac. These aren't downloaded yet:")
+                    .font(.system(size: 12)).foregroundStyle(.white.opacity(0.62))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            VStack(spacing: 6) {
+                ForEach(missing) { language in
+                    Toggle(isOn: Binding(get: { chosen.contains(language.id) },
+                                         set: { if $0 { chosen.insert(language.id) } else { chosen.remove(language.id) } })) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(Translator.name(language.language)).font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
+                            Text("“\(language.sample)”").font(.system(size: 11)).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.white.opacity(0.07), in: .rect(cornerRadius: 10))
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Not Now") { finish([]) }
+                    .keyboardShortcut(.cancelAction)
+                Button("Download") { finish(missing.filter { chosen.contains($0.id) }.map(\.language)) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(chosen.isEmpty)
+            }
+            .controlSize(.large)
+        }
+        .padding(20)
+        .frame(width: 380)
+        .background(Color(white: 0.09).opacity(0.82), in: .rect(cornerRadius: 20))
+        .background(.ultraThinMaterial, in: .rect(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(.white.opacity(0.12)))
+        .shadow(color: .black.opacity(0.45), radius: 30, y: 12)
+        .environment(\.colorScheme, .dark)
+        .scaleEffect(shown ? 1 : 0.94)
+        .opacity(shown ? 1 : 0)
+        .onAppear { withAnimation(.spring(duration: 0.34, bounce: 0)) { shown = true } }  // the same crisp spring as the rest
+    }
+
+    private func finish(_ languages: [Locale.Language]) {
+        withAnimation(.spring(duration: 0.34, bounce: 0)) { shown = false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { done(languages) }
     }
 }

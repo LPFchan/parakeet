@@ -82,12 +82,21 @@ final class SnapJob {
     private(set) var configuration: TranslationSession.Configuration?
     @ObservationIgnored let image: CGImage
     @ObservationIgnored let scale: CGFloat
+    /// Each language's translations as they come in: the downloaded ones
+    /// first, then any the person chose to download.
     @ObservationIgnored var onReady: ([Patch]) -> Void = { _ in }
+    /// Languages on screen that aren't downloaded yet; answer with `download`.
+    @ObservationIgnored var onMissing: ([MissingLanguage]) -> Void = { _ in }
     /// Nothing on the screen needs translating, or nothing could be.
     @ObservationIgnored var onFail: () -> Void = {}
+    /// Everything chosen has been translated.
+    @ObservationIgnored var onFinished: () -> Void = {}
     @ObservationIgnored private let target: Locale.Language
     @ObservationIgnored private var paragraphs: [Paragraph] = []
-    @ObservationIgnored private var sources: [Locale.Language] = []
+    /// Languages to translate next, one session each.
+    @ObservationIgnored private var queue: [Locale.Language] = []
+    @ObservationIgnored private var missing: [MissingLanguage] = []
+    @ObservationIgnored private var painted = false
 
     init(image: CGImage, scale: CGFloat, target: Locale.Language) {
         self.image = image
@@ -116,42 +125,68 @@ final class SnapJob {
                 let native = [Self.language(of: paragraph.text), paragraph.source].contains { $0?.isSame(as: target) == true }
                 return native || paragraph.source == nil ? nil : paragraph
             }
-            // The main language may ask once to download; a stray guess
-            // (a romanized place name read as Indonesian) mustn't, so other
-            // languages are only translated if they're already installed.
-            let main = Self.language(of: foreign.map(\.text).joined(separator: "\n"))
-            var sources: [Locale.Language] = []
-            for source in foreign.compactMap(\.source) where !sources.contains(where: { $0.isSame(as: source) }) {
-                let installed = await LanguageAvailability().status(from: source, to: target) == .installed
-                if installed || main.map(source.isSame) == true { sources.append(source) }
+            // Downloaded languages translate straight away; the rest are
+            // offered for download, each with a sample of its text so a
+            // stray guess (a place name read as Indonesian) is easy to spot.
+            var ready: [Locale.Language] = [], absent: [MissingLanguage] = []
+            for source in foreign.compactMap(\.source) where !(ready.map(\.self) + absent.map(\.language)).contains(where: { $0.isSame(as: source) }) {
+                let mine = foreign.filter { $0.source?.isSame(as: source) == true }
+                switch await LanguageAvailability().status(from: source, to: target) {
+                case .installed: ready.append(source)
+                case .supported: absent.append(MissingLanguage(language: source, sample: mine[0].text, paragraphs: mine.count,
+                                                               characters: mine.map(\.text.count).reduce(0, +)))
+                default: break  // Translation can't do this pair at all
+                }
             }
-            let kept = foreign.filter { paragraph in sources.contains { paragraph.source?.isSame(as: $0) == true } }
-            let chosen = sources
+            let kept = foreign.filter { paragraph in (ready + absent.map(\.language)).contains { paragraph.source?.isSame(as: $0) == true } }
+            let languages = ready, offered = absent
             await MainActor.run {
-                guard !kept.isEmpty else { return onFail() }
                 self.paragraphs = kept
-                self.sources = chosen
-                configuration = .init(source: chosen[0], target: target)
+                missing = offered
+                if languages.isEmpty { return offered.isEmpty ? onFail() : askForMissing() }
+                queue = languages
+                configuration = .init(source: languages[0], target: target)
             }
         }
     }
 
+    /// Translates the chosen languages; for one that isn't downloaded, macOS
+    /// first asks for permission to download it.
+    func download(_ languages: [Locale.Language]) {
+        guard !languages.isEmpty else { return painted ? () : onFail() }
+        queue = languages
+        configuration = .init(source: languages[0], target: target)
+    }
+
     @MainActor func run(_ session: TranslationSession) async {
-        guard let source = sources.first else { return }
-        let requests = paragraphs.indices.filter { paragraphs[$0].source?.isSame(as: source) == true }
-            .map { TranslationSession.Request(sourceText: paragraphs[$0].text, clientIdentifier: "\($0)") }
-        // A language that can't be translated is left as it was.
+        guard let source = queue.first else { return }
+        let mine = paragraphs.indices.filter { paragraphs[$0].source?.isSame(as: source) == true }
+        let requests = mine.map { TranslationSession.Request(sourceText: paragraphs[$0].text, clientIdentifier: "\($0)") }
+        // Declined, or it can't be translated after all: left as it was.
         let responses = (try? await session.translations(from: requests)) ?? []
         if Task.isCancelled { return }
         for response in responses {
             guard let i = response.clientIdentifier.flatMap(Int.init) else { continue }
             paragraphs[i].translation = response.targetText
         }
-        sources.removeFirst()
-        if let next = sources.first { return configuration = .init(source: next, target: target) }
-        let original = image, translated = paragraphs
-        let patches = await Task.detached(operation: { Painter.patches(translated, over: original) }).value
-        patches.isEmpty ? onFail() : onReady(patches)
+        queue.removeFirst()
+        // Paint just this language's paragraphs; the others' are painted already or still to come.
+        let original = image
+        let batch = paragraphs.indices.map { mine.contains($0) ? paragraphs[$0] : Paragraph(lines: paragraphs[$0].lines) }
+        let patches = await Task.detached(operation: { Painter.patches(batch, over: original) }).value
+        if !patches.isEmpty {
+            painted = true
+            onReady(patches)
+        }
+        if let next = queue.first { return configuration = .init(source: next, target: target) }
+        if !missing.isEmpty { return askForMissing() }
+        painted ? onFinished() : onFail()
+    }
+
+    private func askForMissing() {
+        let offered = missing
+        missing = []
+        onMissing(offered)
     }
 
     /// Text lines in pixels, top-left origin. Read whole, Vision misses small
@@ -210,6 +245,17 @@ final class SnapJob {
         guard let (language, sure) = recognizer.languageHypotheses(withMaximum: 1).first, sure >= confidence else { return nil }
         return Locale.Language(identifier: language.rawValue)
     }
+}
+
+/// A language on screen that isn't downloaded yet, with a sample of the text it was found in.
+struct MissingLanguage: Identifiable {
+    let language: Locale.Language
+    let sample: String
+    let paragraphs: Int
+    let characters: Int
+    var id: String { language.maximalIdentifier }
+    /// One short scrap is likely a misread (a place name, a button); it starts unticked.
+    var likely: Bool { paragraphs > 1 || characters >= 24 }
 }
 
 /// `.translationTask` only runs inside a window; this is the job's.

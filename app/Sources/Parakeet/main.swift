@@ -373,8 +373,11 @@ if commands.count >= 3, commands[0] == "--snap" {
     NSApplication.shared.setActivationPolicy(.accessory)
     let job = SnapJob(image: source, scale: 2, target: Locale.Language(identifier: commands.count > 3 ? commands[3] : "ko"))
     let started = Date()
+    var patches: [Patch] = []
     job.onFail = { print("nothing to translate, or translation failed"); exit(1) }
-    job.onReady = { patches in
+    job.onReady = { patches += $0 }
+    job.onMissing = { missing in job.download(missing.map(\.language)) }  // macOS asks
+    job.onFinished = {
         try! NSBitmapImageRep(cgImage: Painter.compose(patches, over: source)!).representation(using: .png, properties: [:])!
             .write(to: URL(fileURLWithPath: commands[2]))
         print(String(format: "%.2f s", Date().timeIntervalSince(started)))
