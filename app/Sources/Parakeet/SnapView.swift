@@ -69,6 +69,8 @@ final class SnapView: NSView {
     private let pending = CALayer()
     private let pendingShape = CAShapeLayer()
     private var waitingFor: Set<Int> = []
+    /// Areas being read again, harder, after a drag found nothing there.
+    private var forcing: [CGRect] = []
     private var dragStart: CGPoint?
     private var dragging = false
     private var follow: Timer?
@@ -241,14 +243,14 @@ final class SnapView: NSView {
     /// The shimmer covers whatever is still on its way: the paragraphs not yet translated.
     private func reshape(_ rects: [CGRect]? = nil, corner: CGFloat = 6) {
         let path = CGMutablePath()
-        for rect in rects ?? waitingFor.compactMap({ marks[$0]?.frame }) {
+        for rect in rects ?? (waitingFor.compactMap({ marks[$0]?.frame }) + forcing) {
             path.addRoundedRect(in: rect, cornerWidth: min(corner, rect.height / 2), cornerHeight: min(corner, rect.height / 2))
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         pendingShape.path = path
         CATransaction.commit()
-        if rects == nil, waitingFor.isEmpty { spring(pending, "opacity", to: 0) }
+        if rects == nil { spring(pending, "opacity", to: waitingFor.isEmpty && forcing.isEmpty ? 0 : 1) }
     }
 
     /// Everything that can be translated is: the picture lights up.
@@ -271,8 +273,10 @@ final class SnapView: NSView {
         card.sizingOptions = [.intrinsicContentSize]
         addSubview(card)
         card.layoutSubtreeIfNeeded()
-        let size = card.fittingSize
-        card.frame = CGRect(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2, width: size.width, height: size.height)
+        // In the margin under the picture, out of the way of what it's about.
+        let size = card.fittingSize, margin = bounds.maxY - pictureFrame.maxY
+        card.frame = CGRect(x: bounds.midX - size.width / 2, y: pictureFrame.maxY + (margin - size.height) / 2,
+                            width: size.width, height: size.height)
         self.card = card
     }
 
@@ -305,6 +309,33 @@ final class SnapView: NSView {
         }
     }
 
+    /// The area shimmers while it's read again; what's found joins the rest and
+    /// stays translated. Nothing found: the area shakes its head.
+    private func force(_ area: CGRect) {
+        forcing.append(area)
+        reshape()
+        let pixels = CGRect(x: area.minX * job.scale, y: area.minY * job.scale, width: area.width * job.scale, height: area.height * job.scale)
+        Task { @MainActor in
+            let found = await job.force(pixels)
+            forcing.removeAll { $0 == area }
+            reshape()
+            guard found == 0, !closing else { return }
+            NSSound.beep()
+            let lens = CALayer()
+            lens.frame = area
+            lens.cornerRadius = 8
+            lens.borderWidth = 1.5 / shrink
+            lens.borderColor = CGColor(srgbRed: 1, green: 0.45, blue: 0.45, alpha: 0.9)
+            picture.addSublayer(lens)
+            let shake = CAKeyframeAnimation(keyPath: "position.x")
+            shake.values = [0, -8, 7, -5, 3, 0].map { area.midX + $0 }
+            shake.duration = 0.4
+            lens.add(shake, forKey: "shake")
+            spring(lens, "opacity", to: 0, from: 1)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { lens.removeFromSuperlayer() }
+        }
+    }
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
@@ -334,7 +365,9 @@ final class SnapView: NSView {
             spring(lens, "opacity", to: 0)
             hovered = nil
             dragged.append(area)
-            return pin(in: area)
+            // Nothing known to translate there: read just that area again, harder.
+            let known = marks.values.contains { $0.frame.intersects(area) }
+            return known ? pin(in: area) : force(area)
         }
         guard pictureFrame.contains(point) else { return onDismiss() }
         // A click keeps the paragraph under the pointer translated, or lets it go.
@@ -410,7 +443,8 @@ final class SnapView: NSView {
     }
 }
 
-/// Asks which missing languages to download, before macOS asks for permission.
+/// Asks which missing languages to download, before macOS asks for permission:
+/// a slim bar under the picture, one chip per language, its text on hover.
 private struct DownloadCard: View {
     let missing: [MissingLanguage]
     let done: ([Locale.Language]) -> Void
@@ -424,48 +458,45 @@ private struct DownloadCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Download languages to translate?").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
-                Text("Parakeet translates on this Mac. These aren't downloaded yet:")
-                    .font(.system(size: 12)).foregroundStyle(.white.opacity(0.62))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            VStack(spacing: 6) {
-                ForEach(missing) { language in
-                    Toggle(isOn: Binding(get: { chosen.contains(language.id) },
-                                         set: { if $0 { chosen.insert(language.id) } else { chosen.remove(language.id) } })) {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(Translator.name(language.language)).font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
-                            Text("“\(language.sample)”").font(.system(size: 11)).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.down.circle").font(.system(size: 15, weight: .medium)).foregroundStyle(.white.opacity(0.7))
+            Text("Download languages to translate?").font(.system(size: 13, weight: .medium)).foregroundStyle(.white.opacity(0.85))
+            ForEach(missing) { language in
+                let on = chosen.contains(language.id)
+                Button {
+                    if on { chosen.remove(language.id) } else { chosen.insert(language.id) }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: on ? "checkmark.circle.fill" : "circle").font(.system(size: 12))
+                        Text(Translator.name(language.language)).font(.system(size: 12, weight: .medium))
                     }
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(.white.opacity(0.07), in: .rect(cornerRadius: 10))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .foregroundStyle(on ? .white : .white.opacity(0.55))
+                    .background(on ? Color.accentColor.opacity(0.55) : .white.opacity(0.08), in: .capsule)
                 }
+                .buttonStyle(.plain)
+                .help("“\(language.sample)”")
             }
-            HStack {
-                Spacer()
-                Button("Not Now") { finish([]) }
-                    .keyboardShortcut(.cancelAction)
-                Button("Download") { finish(missing.filter { chosen.contains($0.id) }.map(\.language)) }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(chosen.isEmpty)
-            }
-            .controlSize(.large)
+            Button("Not Now") { finish([]) }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.6))
+                .padding(.leading, 4)
+                .keyboardShortcut(.cancelAction)
+            Button("Download") { finish(missing.filter { chosen.contains($0.id) }.map(\.language)) }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .keyboardShortcut(.defaultAction)
+                .disabled(chosen.isEmpty)
         }
-        .padding(20)
-        .frame(width: 380)
-        .background(Color(white: 0.09).opacity(0.82), in: .rect(cornerRadius: 20))
-        .background(.ultraThinMaterial, in: .rect(cornerRadius: 20))
-        .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(.white.opacity(0.12)))
-        .shadow(color: .black.opacity(0.45), radius: 30, y: 12)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Color(white: 0.12).opacity(0.85), in: .capsule)
+        .background(.ultraThinMaterial, in: .capsule)
+        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
         .environment(\.colorScheme, .dark)
-        .scaleEffect(shown ? 1 : 0.94)
+        .offset(y: shown ? 0 : 12)
         .opacity(shown ? 1 : 0)
         .onAppear { withAnimation(.spring(duration: 0.34, bounce: 0)) { shown = true } }  // the same crisp spring as the rest
     }
