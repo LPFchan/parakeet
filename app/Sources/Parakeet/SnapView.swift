@@ -160,7 +160,10 @@ final class SnapView: NSView {
         job.onReady = { [weak self] patches in self?.read(patches) }
         job.onMissing = { [weak self] missing in
             self?.lightUp()  // what's downloaded is done
-            if self?.closing == false { self?.strip.missing = missing }
+            // Added to an offer still showing, not in place of it: its languages have nowhere else to wait.
+            guard let self, !closing else { return }
+            let showing = strip.missing ?? []
+            strip.missing = showing + missing.filter { new in !showing.contains { $0.id == new.id } }
         }
         job.onFinished = { [weak self] in self?.lightUp() }
         job.onFail = { [weak self] in
@@ -551,6 +554,7 @@ private struct StripView: View {
                     withAnimation(.spring(duration: 0.34, bounce: 0)) { strip.missing = nil }
                     strip.onDownload(chosen)
                 }
+                .id(missing.map(\.id))  // a language added later starts ticked or not on its own merits
                 .transition(.opacity.combined(with: .offset(y: 8)))
             }
         }
