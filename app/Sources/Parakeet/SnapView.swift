@@ -51,12 +51,14 @@ final class SnapView: NSView {
 
     private let backdrop = CALayer()
     private let glow = CALayer()
-    /// The screen itself, holding the translations and the lens.
+    /// The screen itself, holding the marks, the translations and the drag outline.
     private let picture = CALayer()
     private let lens = CALayer()
 
     private var patches: [Patch] = []
     private var inks: [Int: CALayer] = [:]
+    /// A faint mark over every paragraph that has a translation, so it's plain what can be hovered.
+    private var marks: [Int: CALayer] = [:]
     private var hovered: Int?
     private var pinned: Set<Int> = []
     /// Areas dragged over before the translations were in.
@@ -158,10 +160,26 @@ final class SnapView: NSView {
             ink.filters = [blur]
             picture.insertSublayer(ink, below: lens)
             inks[patch.id] = ink
+            let mark = CALayer()
+            mark.frame = Self.points(patch.box, job.scale).insetBy(dx: -3, dy: -2)
+            mark.cornerRadius = 6
+            mark.backgroundColor = CGColor(srgbRed: 0.45, green: 0.7, blue: 1, alpha: 0.13)
+            mark.borderColor = CGColor(srgbRed: 0.45, green: 0.7, blue: 1, alpha: 0.45)
+            mark.borderWidth = 1 / shrink
+            mark.opacity = 0
+            picture.insertSublayer(mark, below: ink)
+            marks[patch.id] = mark
         }
         guard !closing else { return }
         spring(glow, "opacity", to: 1)
         spring(glow, "transform.scale", to: 1, from: 0.97)
+        // The marks come up with the glow, top to bottom.
+        for (i, patch) in patches.sorted(by: { $0.box.minY < $1.box.minY }).enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.02) { [weak self] in
+                guard let self, !closing, let mark = marks[patch.id], inks[patch.id]?.opacity == 0 else { return }
+                spring(mark, "opacity", to: 1)
+            }
+        }
         for area in waiting { pin(in: area) }
         waiting = []
         hovered = nil
@@ -174,23 +192,13 @@ final class SnapView: NSView {
         guard id != hovered else { return }
         if let old = hovered, !pinned.contains(old) { ink(old, in: false) }
         hovered = id
-        if let id, let box = patches.first(where: { $0.id == id })?.box {
-            let frame = Self.points(box, job.scale).insetBy(dx: -6, dy: -6)
-            // From nowhere it appears in place; from another paragraph it glides over.
-            if lens.opacity < 0.01 { lens.frame = frame } else {
-                spring(lens, "position", to: NSValue(point: CGPoint(x: frame.midX, y: frame.midY)))
-                spring(lens, "bounds", to: NSValue(rect: CGRect(origin: .zero, size: frame.size)))
-            }
-            spring(lens, "opacity", to: 1)
-            ink(id, in: true)
-        } else {
-            spring(lens, "opacity", to: 0)
-        }
+        if let id { ink(id, in: true) }
     }
 
     /// Ink: the translation settles in out of a blur, or melts back into one.
     private func ink(_ id: Int, in show: Bool) {
         guard let layer = inks[id] else { return }
+        if let mark = marks[id] { spring(mark, "opacity", to: show ? 0 : 1) }  // the translation takes its place
         spring(layer, "filters.blur.inputRadius", to: show ? 0 : 6)
         spring(layer, "opacity", to: show ? 1 : 0)
         spring(layer, "transform.scale", to: show ? 1 : 1.04)
@@ -251,6 +259,7 @@ final class SnapView: NSView {
         CATransaction.begin()
         CATransaction.setCompletionBlock(done)
         spring(lens, "opacity", to: 0)
+        for mark in marks.values { spring(mark, "opacity", to: 0) }
         for id in inks.keys where inks[id]!.opacity > 0 { ink(id, in: false) }
         spring(picture, "transform.scale", to: 1)
         spring(picture, "cornerRadius", to: 0)
