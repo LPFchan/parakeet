@@ -73,7 +73,9 @@ final class SnapView: NSView {
     private var pinned: Set<Int> = []
     /// Areas dragged over: everything in them stays translated, including what arrives later.
     private var dragged: [CGRect] = []
-    private var card: NSView?
+    /// The strip under the picture: the Translate All switch, and the download offer when there is one.
+    private let strip = Strip()
+    private var stripView: NSView?
     /// Shimmering placeholders while the screen is read and translated: first
     /// over each line of text, then over each paragraph still to come.
     private let pending = CALayer()
@@ -146,12 +148,19 @@ final class SnapView: NSView {
         host.frame = CGRect(x: frame.midX, y: frame.midY, width: 1, height: 1)
         addSubview(host)
 
+        let stripView = NSHostingView(rootView: StripView(strip: strip) { [weak self] size in self?.place(strip: size) })
+        stripView.sizingOptions = []
+        addSubview(stripView)
+        self.stripView = stripView
+        strip.onShowAll = { [weak self] on in self?.showAll(on) }
+        strip.onDownload = { [weak self] chosen in self?.job.download(chosen) }
+
         job.onSketch = { [weak self] lines in self?.sketch(lines) }
         job.onFound = { [weak self] paragraphs in self?.found(paragraphs) }
         job.onReady = { [weak self] patches in self?.read(patches) }
         job.onMissing = { [weak self] missing in
             self?.lightUp()  // what's downloaded is done
-            self?.offer(missing)
+            if self?.closing == false { self?.strip.missing = missing }
         }
         job.onFinished = { [weak self] in self?.lightUp() }
         job.onFail = { [weak self] in
@@ -214,6 +223,7 @@ final class SnapView: NSView {
             ink.filters = [blur]
             content.insertSublayer(ink, below: lens)
             inks[patch.id] = ink
+            if strip.showAll, !closing { self.ink(patch.id, in: true) }
             // Its placeholder stops shimmering and firms up into a mark: hover it.
             waitingFor.remove(patch.id)
             if let mark = marks[patch.id], !closing {
@@ -273,23 +283,24 @@ final class SnapView: NSView {
         spring(glow, "transform.scale", to: 1, from: 0.97)
     }
 
-    /// Some languages on screen aren't downloaded yet: a card asks which to get.
-    private func offer(_ missing: [MissingLanguage]) {
+
+    /// Every translation at once, top to bottom; off, back to what's hovered or pinned.
+    private func showAll(_ on: Bool) {
         guard !closing else { return }
-        let card = NSHostingView(rootView: DownloadCard(missing: missing) { [weak self] chosen in
-            guard let self else { return }
-            self.card?.removeFromSuperview()
-            self.card = nil
-            job.download(chosen)
-        })
-        card.sizingOptions = [.intrinsicContentSize]
-        addSubview(card)
-        card.layoutSubtreeIfNeeded()
-        // In the margin under the picture, out of the way of what it's about.
-        let size = card.fittingSize, margin = bounds.maxY - pictureFrame.maxY
-        card.frame = CGRect(x: bounds.midX - size.width / 2, y: pictureFrame.maxY + (margin - size.height) / 2,
-                            width: size.width, height: size.height)
-        self.card = card
+        let order = patches.sorted { $0.box.minY < $1.box.minY }.map(\.id)
+        for (i, id) in order.enumerated() where !pinned.contains(id) && id != hovered {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.015) { [weak self] in
+                guard let self, !closing, strip.showAll == on else { return }
+                ink(id, in: on)
+            }
+        }
+    }
+
+    /// Centred in the margin under the picture, at whatever size it wants.
+    private func place(strip size: CGSize) {
+        let margin = bounds.maxY - pictureFrame.maxY
+        stripView?.frame = CGRect(x: bounds.midX - size.width / 2, y: pictureFrame.maxY + (margin - size.height) / 2,
+                                  width: size.width, height: size.height)
     }
 
     private func track() {
@@ -297,7 +308,7 @@ final class SnapView: NSView {
         let point = convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
         let id = patch(at: point)?.id
         guard id != hovered else { return }
-        if let old = hovered, !pinned.contains(old) { ink(old, in: false) }
+        if let old = hovered, !pinned.contains(old), !strip.showAll { ink(old, in: false) }
         hovered = id
         if let id { ink(id, in: true) }
     }
@@ -314,7 +325,7 @@ final class SnapView: NSView {
     /// Everything in a dragged area stays translated, top to bottom.
     private func pin(in area: CGRect) {
         let pixels = CGRect(x: area.minX * job.scale, y: area.minY * job.scale, width: area.width * job.scale, height: area.height * job.scale)
-        let caught = patches.filter { $0.box.intersects(pixels) }.sorted { $0.box.minY < $1.box.minY }
+        let caught = patches.filter { $0.source.intersects(pixels) }.sorted { $0.source.minY < $1.source.minY }
         for (i, patch) in caught.enumerated() where !pinned.contains(patch.id) {
             pinned.insert(patch.id)
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.05) { [weak self] in self?.ink(patch.id, in: true) }
@@ -392,6 +403,7 @@ final class SnapView: NSView {
     /// picture springs back to fill it, exactly where everything was.
     func finish(then done: @escaping () -> Void) {
         closing = true
+        strip.closing = true
         follow?.invalidate()
         CATransaction.begin()
         CATransaction.setCompletionBlock(done)
@@ -476,7 +488,7 @@ final class SnapView: NSView {
         guard pictureFrame.contains(point) else { return nil }
         let p = local(point)
         let pixel = CGPoint(x: p.x * job.scale, y: p.y * job.scale)
-        return patches.first { $0.box.insetBy(dx: -4, dy: -4).contains(pixel) }
+        return patches.first { $0.source.insetBy(dx: -4, dy: -4).contains(pixel) }
     }
 
     private static func points(_ box: CGRect, _ scale: CGFloat) -> CGRect {
@@ -501,13 +513,73 @@ final class SnapView: NSView {
     }
 }
 
+/// What the strip under the picture shows.
+@Observable
+final class Strip {
+    /// Every translation shown at once instead of on hover; remembered.
+    var showAll = UserDefaults.standard.bool(forKey: "snapShowAll") {
+        didSet {
+            UserDefaults.standard.set(showAll, forKey: "snapShowAll")
+            onShowAll(showAll)
+        }
+    }
+    /// Languages to offer for download; nil when there's nothing to ask.
+    var missing: [MissingLanguage]?
+    var closing = false
+    @ObservationIgnored var onShowAll: (Bool) -> Void = { _ in }
+    @ObservationIgnored var onDownload: ([Locale.Language]) -> Void = { _ in }
+}
+
+private struct StripView: View {
+    let strip: Strip
+    let resized: (CGSize) -> Void
+    @State private var shown = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Toggle(isOn: Binding(get: { strip.showAll }, set: { strip.showAll = $0 })) {
+                Label("Translate All", systemImage: "translate").font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .modifier(Pill())
+            if let missing = strip.missing {
+                DownloadOffer(missing: missing) { chosen in
+                    withAnimation(.spring(duration: 0.34, bounce: 0)) { strip.missing = nil }
+                    strip.onDownload(chosen)
+                }
+                .transition(.opacity.combined(with: .offset(y: 8)))
+            }
+        }
+        .fixedSize()
+        .environment(\.colorScheme, .dark)
+        .opacity(shown && !strip.closing ? 1 : 0)
+        .offset(y: shown && !strip.closing ? 0 : 12)
+        .animation(.spring(duration: 0.34, bounce: 0), value: strip.missing == nil)  // the same crisp spring as the rest
+        .animation(.spring(duration: 0.34, bounce: 0), value: strip.closing)
+        .onGeometryChange(for: CGSize.self, of: \.size) { resized($0) }
+        .onAppear { withAnimation(.spring(duration: 0.34, bounce: 0).delay(0.2)) { shown = true } }
+    }
+}
+
+private struct Pill: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .background(Color(white: 0.12).opacity(0.85), in: .capsule)
+            .background(.ultraThinMaterial, in: .capsule)
+            .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
+    }
+}
+
 /// Asks which missing languages to download, before macOS asks for permission:
-/// a slim bar under the picture, one chip per language, its text on hover.
-private struct DownloadCard: View {
+/// one chip per language, its text on hover.
+private struct DownloadOffer: View {
     let missing: [MissingLanguage]
     let done: ([Locale.Language]) -> Void
     @State private var chosen: Set<String>
-    @State private var shown = false
 
     init(missing: [MissingLanguage], done: @escaping ([Locale.Language]) -> Void) {
         self.missing = missing
@@ -536,13 +608,13 @@ private struct DownloadCard: View {
                 .buttonStyle(.plain)
                 .help("“\(language.sample)”")
             }
-            Button("Not Now") { finish([]) }
+            Button("Not Now") { done([]) }
                 .buttonStyle(.plain)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white.opacity(0.6))
                 .padding(.leading, 4)
                 .keyboardShortcut(.cancelAction)
-            Button("Download") { finish(missing.filter { chosen.contains($0.id) }.map(\.language)) }
+            Button("Download") { done(missing.filter { chosen.contains($0.id) }.map(\.language)) }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .keyboardShortcut(.defaultAction)
@@ -550,17 +622,6 @@ private struct DownloadCard: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .background(Color(white: 0.12).opacity(0.85), in: .capsule)
-        .background(.ultraThinMaterial, in: .capsule)
-        .overlay(Capsule().strokeBorder(.white.opacity(0.12)))
-        .environment(\.colorScheme, .dark)
-        .offset(y: shown ? 0 : 12)
-        .opacity(shown ? 1 : 0)
-        .onAppear { withAnimation(.spring(duration: 0.34, bounce: 0)) { shown = true } }  // the same crisp spring as the rest
-    }
-
-    private func finish(_ languages: [Locale.Language]) {
-        withAnimation(.spring(duration: 0.34, bounce: 0)) { shown = false }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { done(languages) }
+        .modifier(Pill())
     }
 }
