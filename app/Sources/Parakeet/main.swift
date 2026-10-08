@@ -371,12 +371,18 @@ if commands.count >= 3, commands[0] == "--snap" {
         print("can't read", commands[1]); exit(2)
     }
     NSApplication.shared.setActivationPolicy(.accessory)
+    setvbuf(stdout, nil, _IOLBF, 0)  // timings show up as they happen, even piped
     let job = SnapJob(image: source, scale: 2, target: Locale.Language(identifier: commands.count > 3 ? commands[3] : "ko"))
     let started = Date()
     var patches: [Patch] = []
     job.onFail = { print("nothing to translate, or translation failed"); exit(1) }
-    job.onReady = { patches += $0 }
-    job.onMissing = { missing in job.download(missing.map(\.language)) }  // macOS asks
+    job.onFound = { print(String(format: "%.2f s  read: %d paragraphs", Date().timeIntervalSince(started), $0.count)) }
+    job.onReady = {
+        patches += $0
+        print(String(format: "%.2f s  %d translated", Date().timeIntervalSince(started), $0.count))
+    }
+    // What the card would tick: macOS asks before downloading each.
+    job.onMissing = { missing in job.download(missing.filter(\.likely).map(\.language)) }
     job.onFinished = {
         try! NSBitmapImageRep(cgImage: Painter.compose(patches, over: source)!).representation(using: .png, properties: [:])!
             .write(to: URL(fileURLWithPath: commands[2]))

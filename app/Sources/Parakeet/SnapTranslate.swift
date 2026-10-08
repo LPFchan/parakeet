@@ -85,6 +85,8 @@ final class SnapJob {
     /// Each language's translations as they come in: the downloaded ones
     /// first, then any the person chose to download.
     @ObservationIgnored var onReady: ([Patch]) -> Void = { _ in }
+    /// The screen has been read: every paragraph to be translated, by id and box (pixels).
+    @ObservationIgnored var onFound: ([(id: Int, box: CGRect)]) -> Void = { _ in }
     /// Languages on screen that aren't downloaded yet; answer with `download`.
     @ObservationIgnored var onMissing: ([MissingLanguage]) -> Void = { _ in }
     /// Nothing on the screen needs translating, or nothing could be.
@@ -142,6 +144,7 @@ final class SnapJob {
             let languages = ready, offered = absent
             await MainActor.run {
                 self.paragraphs = kept
+                onFound(kept.indices.map { ($0, kept[$0].box) })
                 missing = offered
                 if languages.isEmpty { return offered.isEmpty ? onFail() : askForMissing() }
                 queue = languages
@@ -153,7 +156,7 @@ final class SnapJob {
     /// Translates the chosen languages; for one that isn't downloaded, macOS
     /// first asks for permission to download it.
     func download(_ languages: [Locale.Language]) {
-        guard !languages.isEmpty else { return painted ? () : onFail() }
+        guard !languages.isEmpty else { return painted ? onFinished() : onFail() }
         queue = languages
         configuration = .init(source: languages[0], target: target)
     }
@@ -217,6 +220,8 @@ final class SnapJob {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.automaticallyDetectsLanguage = true
+        // The dictionary pass triples the time and only touches up proper nouns.
+        request.usesLanguageCorrection = false
         try? VNImageRequestHandler(cgImage: image).perform([request])
         let size = CGSize(width: image.width, height: image.height)
         return (request.results ?? []).compactMap { observation in
