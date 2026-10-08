@@ -147,8 +147,31 @@ final class SnapJob {
         patches.isEmpty ? onFail() : onReady(patches)
     }
 
-    /// Text lines in pixels, top-left origin, in reading order.
+    /// Text lines in pixels, top-left origin. Read whole, Vision misses small
+    /// lines (a lone "ん。" ending a sentence, flipping its meaning), so the
+    /// screen is also read in four overlapping quarters, all at once, and any
+    /// line the whole pass missed is added from those.
     private static func lines(in image: CGImage) -> [Line] {
+        let w = image.width / 2, h = image.height / 2, pad = 80
+        let tiles = [CGRect(x: 0, y: 0, width: image.width, height: image.height)] + (0..<4).map { i in
+            let x = max((i % 2) * w - pad, 0), y = max((i / 2) * h - pad, 0)
+            return CGRect(x: x, y: y, width: min(w + 2 * pad, image.width - x), height: min(h + 2 * pad, image.height - y))
+        }
+        var found = [[Line]](repeating: [], count: tiles.count)
+        let lock = NSLock()
+        DispatchQueue.concurrentPerform(iterations: tiles.count) { i in
+            guard let crop = image.cropping(to: tiles[i]) else { return }
+            let lines = recognize(crop).map { Line(text: $0.text, box: $0.box.offsetBy(dx: tiles[i].minX, dy: tiles[i].minY)) }
+            lock.lock(); found[i] = lines; lock.unlock()
+        }
+        var lines = found[0]
+        for line in found.dropFirst().joined() where !lines.contains(where: { overlap($0.box, line.box) > 0.3 }) {
+            lines.append(line)
+        }
+        return lines
+    }
+
+    private static func recognize(_ image: CGImage) -> [Line] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.automaticallyDetectsLanguage = true
@@ -159,6 +182,13 @@ final class SnapJob {
             let box = VNImageRectForNormalizedRect(observation.boundingBox, Int(size.width), Int(size.height))
             return Line(text: text, box: CGRect(x: box.minX, y: size.height - box.maxY, width: box.width, height: box.height))
         }
+    }
+
+    /// How much of the smaller box the two share.
+    private static func overlap(_ a: CGRect, _ b: CGRect) -> CGFloat {
+        let shared = a.intersection(b)
+        guard !shared.isNull else { return 0 }
+        return shared.width * shared.height / max(min(a.width * a.height, b.width * b.height), 1)
     }
 
     private static func language(of text: String, confidence: Double = 0) -> Locale.Language? {
