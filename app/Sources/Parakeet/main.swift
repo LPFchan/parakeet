@@ -1,6 +1,7 @@
 import AppKit
 import ServiceManagement
 import Sparkle
+import Translation
 
 /// `Parakeet <command>` talks to the running app over distributed notifications.
 enum Control {
@@ -45,8 +46,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let tap = SystemAudioTap()
     // Into the captions' language, else the user's own if Translation knows it, else English.
     private lazy var snap = SnapTranslate { [translator] in
-        translator.target ?? translator.languages.first { $0.isSame(as: Locale.current.language) }
-            ?? Locale.Language(identifier: "en")
+        if let target = translator.target { return target }
+        let supported = await LanguageAvailability().supportedLanguages
+        return supported.first { $0.isSame(as: Locale.current.language) } ?? Locale.Language(identifier: "en")
     }
     private lazy var updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: self)
     private var engine: Engine?

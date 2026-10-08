@@ -10,11 +10,11 @@ import Vision
 /// in the language captions translate into. Reading, translating and drawing
 /// all happen on this Mac.
 final class SnapTranslate: NSObject {
-    private let target: () -> Locale.Language
+    private let target: () async -> Locale.Language
     private var selection: SelectionPanel?
     private var overlay: OverlayPanel?
 
-    init(target: @escaping () -> Locale.Language) {
+    init(target: @escaping () async -> Locale.Language) {
         self.target = target
         super.init()
         // Carbon's hotkeys need no Input Monitoring permission.
@@ -59,7 +59,7 @@ final class SnapTranslate: NSObject {
 
     @MainActor private func translate(_ rect: CGRect, on screen: NSScreen) async {
         guard let image = try? await Self.capture(rect, on: screen) else { return NSSound.beep() }
-        let job = SnapJob(image: image, scale: screen.backingScaleFactor, target: target())
+        let job = SnapJob(image: image, scale: screen.backingScaleFactor, target: await target())
         let panel = OverlayPanel(frame: rect, job: job)
         job.onFail = { [weak self, weak panel] in
             NSSound.beep()
