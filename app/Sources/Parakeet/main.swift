@@ -109,26 +109,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         onboarding.onFinish = { [weak self] in self?.finishOnboarding() }
         onboarding.onRetry = { [weak self] in self?.startEngine() }
         // If macOS quits and reopens Parakeet to apply Screen Recording, it comes back set up.
-        onboarding.onScreenRecording = { [weak self] in self?.saveOnboarding() }
+        // (Open at Login waits for the page that shows its switch.)
+        onboarding.onScreenRecording = { [rehearse] in if !rehearse { UserDefaults.standard.set(true, forKey: "onboarded") } }
         self.onboarding = onboarding
         onboardingWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
     }
 
-    private func saveOnboarding() {
-        guard let onboarding, !rehearse else { return }
-        UserDefaults.standard.set(true, forKey: "onboarded")
-        let service = SMAppService.mainApp
-        if onboarding.openAtLogin, service.status != .enabled { try? service.register() }
-        // Changed back after an early save: undone even if it's still awaiting approval.
-        if !onboarding.openAtLogin, [.enabled, .requiresApproval].contains(service.status) { try? service.unregister() }
-    }
-
     private func finishOnboarding() {
         guard let onboarding else { return }
-        saveOnboarding()
         self.onboarding = nil
+        UserDefaults.standard.set(true, forKey: "onboarded")
+        if onboarding.openAtLogin, SMAppService.mainApp.status != .enabled { try? SMAppService.mainApp.register() }
         onboardingWindow?.close()
         onboardingWindow = nil
         if ready { startListening() }
