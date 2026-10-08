@@ -382,7 +382,10 @@ if commands.count >= 3, commands[0] == "--snap" {
         print(String(format: "%.2f s  %d translated", Date().timeIntervalSince(started), $0.count))
     }
     // What the card would tick: macOS asks before downloading each.
-    job.onMissing = { missing in job.download(missing.filter(\.likely).map(\.language)) }
+    job.onMissing = { missing in
+        print("offered:", missing.map { "\($0.language.minimalIdentifier)\($0.likely ? "" : " (unticked)") “\($0.sample)”" })
+        job.download(missing.filter(\.likely).map(\.language))
+    }
     job.onFinished = {
         try! NSBitmapImageRep(cgImage: Painter.compose(patches, over: source)!).representation(using: .png, properties: [:])!
             .write(to: URL(fileURLWithPath: commands[2]))

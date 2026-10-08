@@ -64,6 +64,11 @@ final class SnapView: NSView {
     /// Areas dragged over: everything in them stays translated, including what arrives later.
     private var dragged: [CGRect] = []
     private var card: NSView?
+    /// Shimmering placeholders while the screen is read and translated: first
+    /// over each line of text, then over each paragraph still to come.
+    private let pending = CALayer()
+    private let pendingShape = CAShapeLayer()
+    private var waitingFor: Set<Int> = []
     private var dragStart: CGPoint?
     private var dragging = false
     private var follow: Timer?
@@ -127,9 +132,41 @@ final class SnapView: NSView {
         host.frame = CGRect(x: frame.midX, y: frame.midY, width: 1, height: 1)
         addSubview(host)
 
+        job.onSketch = { [weak self] lines in self?.sketch(lines) }
+        job.onFound = { [weak self] paragraphs in self?.found(paragraphs) }
         job.onReady = { [weak self] patches in self?.read(patches) }
-        job.onMissing = { [weak self] missing in self?.offer(missing) }
-        job.onFail = { NSSound.beep() }  // and it stays unlit
+        job.onMissing = { [weak self] missing in
+            self?.lightUp()  // what's downloaded is done
+            self?.offer(missing)
+        }
+        job.onFinished = { [weak self] in self?.lightUp() }
+        job.onFail = { [weak self] in
+            NSSound.beep()  // and it stays unlit
+            if let self { spring(pending, "opacity", to: 0) }
+        }
+
+        // The shimmer: a soft band of light running across the placeholders.
+        pending.frame = bounds
+        pending.opacity = 0
+        // The placeholders themselves, cut out by the mask; blue shows on light pages and dark alike.
+        pending.backgroundColor = CGColor(srgbRed: 0.4, green: 0.65, blue: 1, alpha: 0.16)
+        let band = CAGradientLayer()
+        band.frame = bounds
+        band.startPoint = CGPoint(x: 0, y: 0.5)
+        band.endPoint = CGPoint(x: 1, y: 0.5)
+        band.colors = [CGColor(srgbRed: 0.55, green: 0.8, blue: 1, alpha: 0), CGColor(srgbRed: 0.55, green: 0.8, blue: 1, alpha: 0.6),
+                       CGColor(srgbRed: 0.55, green: 0.8, blue: 1, alpha: 0)]
+        band.locations = [-0.3, -0.15, 0]
+        let sweep = CABasicAnimation(keyPath: "locations")
+        sweep.fromValue = [-0.3, -0.15, 0]
+        sweep.toValue = [1, 1.15, 1.3]
+        sweep.duration = 1.4
+        sweep.repeatCount = .infinity
+        band.add(sweep, forKey: "sweep")
+        pending.addSublayer(band)
+        pendingShape.frame = bounds
+        pending.mask = pendingShape
+        picture.addSublayer(pending)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -150,7 +187,6 @@ final class SnapView: NSView {
 
     /// The translations are in: the picture lights up, and each waits, unseen, over its paragraph.
     private func read(_ patches: [Patch]) {
-        let first = self.patches.isEmpty
         self.patches += patches
         for patch in patches {
             let ink = CALayer()
@@ -164,30 +200,63 @@ final class SnapView: NSView {
             ink.filters = [blur]
             picture.insertSublayer(ink, below: lens)
             inks[patch.id] = ink
-            let mark = CALayer()
-            mark.frame = Self.points(patch.box, job.scale).insetBy(dx: -3, dy: -2)
-            mark.cornerRadius = 6
-            mark.backgroundColor = CGColor(srgbRed: 0.45, green: 0.7, blue: 1, alpha: 0.13)
-            mark.borderColor = CGColor(srgbRed: 0.45, green: 0.7, blue: 1, alpha: 0.45)
-            mark.borderWidth = 1 / shrink
-            mark.opacity = 0
-            picture.insertSublayer(mark, below: ink)
-            marks[patch.id] = mark
-        }
-        guard !closing else { return }
-        if first {
-            spring(glow, "opacity", to: 1)
-            spring(glow, "transform.scale", to: 1, from: 0.97)
-        }
-        // The marks come up with the glow, top to bottom.
-        for (i, patch) in patches.sorted(by: { $0.box.minY < $1.box.minY }).enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.02) { [weak self] in
-                guard let self, !closing, let mark = marks[patch.id], inks[patch.id]?.opacity == 0 else { return }
-                spring(mark, "opacity", to: 1)
+            // Its placeholder stops shimmering and firms up into a mark: hover it.
+            waitingFor.remove(patch.id)
+            if let mark = marks[patch.id], !closing {
+                spring(mark, "backgroundColor", to: CGColor(srgbRed: 0.45, green: 0.7, blue: 1, alpha: 0.13))
+                spring(mark, "borderColor", to: CGColor(srgbRed: 0.45, green: 0.7, blue: 1, alpha: 0.5))
             }
         }
+        reshape()
         for area in dragged { pin(in: area) }
         hovered = nil
+    }
+
+    /// Where the text is, before it's read: each line shimmers.
+    private func sketch(_ lines: [CGRect]) {
+        guard !closing, patches.isEmpty, waitingFor.isEmpty else { return }
+        reshape(lines.map { Self.points($0, job.scale).insetBy(dx: -2, dy: -1) }, corner: 3)
+        spring(pending, "opacity", to: 1)
+    }
+
+    /// Read: the shimmer gathers onto the paragraphs being translated, each outlined faintly.
+    private func found(_ paragraphs: [(id: Int, box: CGRect)]) {
+        guard !closing else { return }
+        waitingFor = Set(paragraphs.map(\.id))
+        for (id, box) in paragraphs where marks[id] == nil {
+            let mark = CALayer()
+            mark.frame = Self.points(box, job.scale).insetBy(dx: -3, dy: -2)
+            mark.cornerRadius = 6
+            mark.backgroundColor = CGColor(srgbRed: 0.45, green: 0.7, blue: 1, alpha: 0.04)
+            mark.borderColor = CGColor(srgbRed: 0.45, green: 0.7, blue: 1, alpha: 0.22)
+            mark.borderWidth = 1 / shrink
+            mark.opacity = 0
+            picture.insertSublayer(mark, below: pending)
+            marks[id] = mark
+            spring(mark, "opacity", to: 1)
+        }
+        reshape()
+    }
+
+    /// The shimmer covers whatever is still on its way: the paragraphs not yet translated.
+    private func reshape(_ rects: [CGRect]? = nil, corner: CGFloat = 6) {
+        let path = CGMutablePath()
+        for rect in rects ?? waitingFor.compactMap({ marks[$0]?.frame }) {
+            path.addRoundedRect(in: rect, cornerWidth: min(corner, rect.height / 2), cornerHeight: min(corner, rect.height / 2))
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        pendingShape.path = path
+        CATransaction.commit()
+        if rects == nil, waitingFor.isEmpty { spring(pending, "opacity", to: 0) }
+    }
+
+    /// Everything that can be translated is: the picture lights up.
+    private func lightUp() {
+        guard !closing, glow.opacity < 1 else { return }
+        spring(pending, "opacity", to: 0)
+        spring(glow, "opacity", to: 1)
+        spring(glow, "transform.scale", to: 1, from: 0.97)
     }
 
     /// Some languages on screen aren't downloaded yet: a card asks which to get.
