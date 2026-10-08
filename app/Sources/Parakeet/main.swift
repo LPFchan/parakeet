@@ -1,6 +1,7 @@
 import AppKit
 import ServiceManagement
 import Sparkle
+import SwiftUI
 import Translation
 
 /// `Parakeet <command>` talks to the running app over distributed notifications.
@@ -363,26 +364,26 @@ if commands.count == 2, commands[0] == "--bench" {
     RunLoop.main.run()
 }
 
-// `Parakeet --snap in.png out.png [language]` reads, translates and repaints
-// an image as ⇧⌘1 does, without a screen to capture.
+// `Parakeet --snap in.png out.png [language]` reads and translates an image
+// as ⇧⌘1 does the screen, and writes it out with every translation laid in.
 if commands.count >= 3, commands[0] == "--snap" {
     guard let source = NSImage(contentsOfFile: commands[1])?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
         print("can't read", commands[1]); exit(2)
     }
     NSApplication.shared.setActivationPolicy(.accessory)
     let job = SnapJob(image: source, scale: 2, target: Locale.Language(identifier: commands.count > 3 ? commands[3] : "ko"))
-    job.onFail = { print("nothing to translate, or translation failed"); exit(1) }
-    // `.translationTask` only runs in a window.
-    let window = OverlayPanel(frame: CGRect(x: 0, y: 0, width: source.width / 2, height: source.height / 2), job: job)
-    window.orderFrontRegardless()
     let started = Date()
-    job.read()
-    Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
-        guard job.done else { return }
-        try! NSBitmapImageRep(cgImage: Painter.compose(job.patches, over: job.image)!).representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: commands[2]))
+    job.onFail = { print("nothing to translate, or translation failed"); exit(1) }
+    job.onReady = { patches in
+        try! NSBitmapImageRep(cgImage: Painter.compose(patches, over: source)!).representation(using: .png, properties: [:])!
+            .write(to: URL(fileURLWithPath: commands[2]))
         print(String(format: "%.2f s", Date().timeIntervalSince(started)))
         exit(0)
     }
+    let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1, height: 1), styleMask: .borderless, backing: .buffered, defer: false)
+    window.contentView = NSHostingView(rootView: TranslationHost(job: job))
+    window.orderFrontRegardless()
+    job.read()
     NSApplication.shared.run()
 }
 
