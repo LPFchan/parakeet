@@ -1,6 +1,7 @@
 import AppKit
 import ServiceManagement
 import Sparkle
+import Translation
 
 /// `Parakeet <command>` talks to the running app over distributed notifications.
 enum Control {
@@ -43,6 +44,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                           onCopy: { [weak self] in self?.copyTranscript() })
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let tap = SystemAudioTap()
+    // Into the captions' language, else the user's own if Translation knows it, else English.
+    private lazy var snap = SnapTranslate { [translator] in
+        if let target = translator.target { return target }
+        let supported = await LanguageAvailability().supportedLanguages
+        return supported.first { $0.isSame(as: Locale.current.language) } ?? Locale.Language(identifier: "en")
+    }
     private lazy var updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: self)
     private var engine: Engine?
     private var onboarding: Onboarding?   // set while the first-launch window is open
@@ -76,6 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         rehearse = CommandLine.arguments.contains("--rehearse-first-launch")
         if rehearse || !UserDefaults.standard.bool(forKey: "onboarded") { showOnboarding() }
         startEngine()
+        _ = snap
         SystemAudioTap.onOutputDeviceChange { [weak self] in self?.restartTap() }
         Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [captions, translator] _ in
             if captions.partial.isEmpty { translator.settle(after: 2) }  // nobody mid-sentence
@@ -146,6 +154,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.state = language?.minimalIdentifier == translator.target?.minimalIdentifier ? .on : .off
         }
         menu.setSubmenu(translate, for: menu.addItem(withTitle: String(localized: "Translate To"), action: nil, keyEquivalent: ""))
+        let area = menu.addItem(withTitle: String(localized: "Translate Screen Area"), action: #selector(SnapTranslate.start), keyEquivalent: "1")
+        area.keyEquivalentModifierMask = [.command, .shift]
+        area.target = snap
         menu.addItem(.separator())
         let login = menu.addItem(withTitle: String(localized: "Open at Login"), action: #selector(toggleOpenAtLogin), keyEquivalent: "")
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
@@ -350,6 +361,29 @@ if commands.count == 2, commands[0] == "--bench" {
         }
     }
     RunLoop.main.run()
+}
+
+// `Parakeet --snap in.png out.png [language]` reads, translates and repaints
+// an image as ⇧⌘1 does, without a screen to capture.
+if commands.count >= 3, commands[0] == "--snap" {
+    guard let source = NSImage(contentsOfFile: commands[1])?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        print("can't read", commands[1]); exit(2)
+    }
+    NSApplication.shared.setActivationPolicy(.accessory)
+    let job = SnapJob(image: source, scale: 2, target: Locale.Language(identifier: commands.count > 3 ? commands[3] : "ko"))
+    job.onFail = { print("nothing to translate, or translation failed"); exit(1) }
+    // `.translationTask` only runs in a window.
+    let window = OverlayPanel(frame: CGRect(x: 0, y: 0, width: source.width / 2, height: source.height / 2), job: job)
+    window.orderFrontRegardless()
+    let started = Date()
+    job.read()
+    Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+        guard job.done else { return }
+        try! NSBitmapImageRep(cgImage: job.image).representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: commands[2]))
+        print(String(format: "%.2f s", Date().timeIntervalSince(started)))
+        exit(0)
+    }
+    NSApplication.shared.run()
 }
 
 let app = NSApplication.shared
