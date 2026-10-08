@@ -6,7 +6,8 @@ import QuartzCore
 /// How the picture comes apart, while trying them out:
 /// `defaults write plus.lost.parakeet snapEffect curl|cloud`.
 enum SnapEffect: String {
-    /// The rim streams off as the screen's own pixels, flowing through 3D curl noise.
+    /// Zooming out leaves echoes: the rim keeps shedding streaks of the screen's own
+    /// pixels that fly straight out and toward you, in pulsing rings.
     case curl
     /// The screen bursts into a cloud of points in depth and gathers into the picture; its rim stays loose.
     case cloud
@@ -71,7 +72,8 @@ final class ShaderLayer: CAMetalLayer {
         }
         let cloud = effect == .cloud
         guard let quad = pipeline("quadVertex", "quadFragment", additive: false),
-              let points = pipeline(cloud ? "cloudVertex" : "particleVertex", "pointFragment", additive: !cloud),
+              let points = cloud ? pipeline("cloudVertex", "pointFragment", additive: false)
+                                 : pipeline("streakVertex", "streakFragment", additive: true),
               let kernel = library.makeFunction(name: "stepParticles"),
               let step = try? device.makeComputePipelineState(function: kernel) else { return nil }
         // The cloud is one point every 3 points of screen; the others keep a pool of loose particles.
@@ -162,7 +164,8 @@ final class ShaderLayer: CAMetalLayer {
             render.setVertexBuffer(particles, offset: 0, index: 0)
             render.setVertexBytes(&u, length: size, index: 1)
         }
-        render.drawPrimitives(type: .point, vertexStart: 0, vertexCount: count)
+        // The cloud is points; the echoes are streaks, a quad of two triangles each.
+        render.drawPrimitives(type: effect == .cloud ? .point : .triangle, vertexStart: 0, vertexCount: effect == .cloud ? count : count * 6)
         render.endEncoding()
         commands.present(drawable)
         commands.commit()
@@ -280,10 +283,14 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant U &u [[buffer(0)]
     float3 c = screen.sample(s, (in.p - u.rect.xy) / u.rect.zw).rgb;
     float d = inside(in.p, u.rect, u.corner);
     if (d <= 0.0) discard_fragment();
-    // The rim thins out unevenly into the particles.
-    float n = snoise(float3(in.p * 0.025, u.time * 0.35)) * 0.5 + 0.5;
-    float a = mix(1.0, smoothstep(0.0, u.band, d + (n - 0.6) * u.band), u.spawn);
-    if (u.mode == 2u) a *= smoothstep(0.7, 1.0, u.intro);
+    float a;
+    if (u.mode == 1u) {
+        a = smoothstep(0.0, 1.5, d);  // a clean edge for the echoes to leave from
+    } else {
+        // The rim thins out unevenly into the points.
+        float n = snoise(float3(in.p * 0.025, u.time * 0.35)) * 0.5 + 0.5;
+        a = mix(1.0, smoothstep(0.0, u.band, d + (n - 0.6) * u.band), u.spawn) * smoothstep(0.7, 1.0, u.intro);
+    }
     return float4(c * a, a);
 }
 
@@ -307,16 +314,21 @@ kernel void stepParticles(device Particle *ps [[buffer(0)]], constant U &u [[buf
     Particle q = ps[id];
     uint s = id * 1973u + u.frame * 9277u + 1u;
     if (q.pos.w >= q.vel.w) {
-        if (rnd(s) > u.spawn * 0.008) return;
+        // Released in rings: a pulse every 1.4 s, each an echo of the edge.
+        float pulse = pow(0.5 + 0.5 * sin(u.time * 4.49), 8.0);
+        if (rnd(s) > u.spawn * 0.006 * (0.25 + 2.5 * pulse)) return;
         constexpr sampler smp(filter::linear, address::clamp_to_edge);
         for (int k = 0; k < 4; k++) {
             float2 out;
-            float2 p = rimPoint(s, u.rect, u.band, out);
+            float2 p = rimPoint(s, u.rect, 1.5, out);  // right at the edge
             float d = inside(p, u.rect, u.corner);
-            if (d <= 0.0) continue;
+            if (d < -1.5) continue;
             float2 uv = (p - u.rect.xy) / u.rect.zw;
-            q.color = float4(screen.sample(smp, uv).rgb * 0.85 + 0.12, 1.0);
-            q.vel = float4(out * (20.0 + rnd(s) * 70.0), (rnd(s) - 0.25) * 120.0, 2.0 + rnd(s) * 2.8);
+            q.color = float4(screen.sample(smp, uv).rgb * 0.8 + 0.2, 1.0);
+            // Straight out from the middle of the picture, and toward you: the way it zoomed away.
+            float2 radial = (p - (u.rect.xy + u.rect.zw * 0.5)) / (u.rect.zw * 0.5);
+            float speed = 90.0 + rnd(s) * 160.0;
+            q.vel = float4(normalize(radial) * speed, speed * (0.4 + rnd(s) * 0.5), 1.1 + rnd(s) * 1.1);
             q.pos = float4(p, 0.0, 0.0);
             q.misc = float4(uv, rnd(s), 0.0);
             ps[id] = q;
@@ -326,7 +338,8 @@ kernel void stepParticles(device Particle *ps [[buffer(0)]], constant U &u [[buf
     }
     float3 p = q.pos.xyz, v = q.vel.xyz;
     float3 c = curl(p * 0.0035 + float3(0.0, 0.0, u.time * 0.12));
-    v = mix(v, c * 130.0 + float3(0.0, -8.0, 25.0), 0.045);
+    v *= 1.0 + 1.1 * u.dt;  // speeding up as they go, like the zoom
+    v += c * 18.0 * u.dt;   // a little air, not a swirl
     q.pos = float4(p + v * u.dt, q.pos.w + u.dt);
     q.vel.xyz = v;
     ps[id] = q;
@@ -383,6 +396,41 @@ vertex PointOut cloudVertex(uint id [[vertex_id]], constant U &u [[buffer(0)]], 
     o.color = float4(c * a, a);
     o.soft = blur * 0.7;
     return o;
+}
+
+struct StreakOut { float4 position [[position]]; float4 color; float2 local; };
+
+// Each echo is a streak from where it was a moment ago to where it is,
+// widening and brightening as it comes closer.
+vertex StreakOut streakVertex(uint vid [[vertex_id]], const device Particle *ps [[buffer(0)]], constant U &u [[buffer(1)]]) {
+    Particle q = ps[vid / 6u];
+    StreakOut o;
+    o.color = 0.0;
+    o.local = 0.0;
+    if (q.pos.w >= q.vel.w) { o.position = float4(2.0, 2.0, 0.0, 1.0); return o; }
+    uint corner = vid % 6u;
+    float head = (corner == 1u || corner == 4u || corner == 5u) ? 1.0 : 0.0;
+    float side = (corner == 2u || corner == 3u || corner == 5u) ? 1.0 : -1.0;
+    float3 p = q.pos.xyz;
+    float2 h = project(p, u).xy * u.view * 0.5;
+    float2 t = project(p - q.vel.xyz * 0.07, u).xy * u.view * 0.5;
+    float2 dir = h - t;
+    float len = length(dir);
+    dir = len > 0.001 ? dir / len : float2(1.0, 0.0);
+    float k = u.depth / (u.depth - min(p.z, u.depth * 0.8));
+    float width = mix(0.6, 1.6, q.misc.z) * k;
+    float2 at = (head > 0.5 ? h + dir * width : t) + float2(-dir.y, dir.x) * side * width;
+    o.position = float4(at / (u.view * 0.5), 0.0, 1.0);
+    float life = q.pos.w / q.vel.w;
+    float a = min(life * 10.0, 1.0) * pow(1.0 - life, 1.5) * 0.9;
+    o.color = float4(q.color.rgb * a, a);
+    o.local = float2(head, side);
+    return o;
+}
+
+fragment float4 streakFragment(StreakOut in [[stage_in]]) {
+    // Bright at the head, fading to nothing at the tail; soft across.
+    return in.color * in.local.x * (1.0 - smoothstep(0.3, 1.0, abs(in.local.y)));
 }
 
 fragment float4 pointFragment(PointOut in [[stage_in]], float2 at [[point_coord]]) {

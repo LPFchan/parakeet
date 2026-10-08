@@ -232,7 +232,8 @@ final class SnapView: NSView {
             let x = 1 - exp(-zeta * omega * t) * (cos(damped * t) + zeta * omega / damped * sin(damped * t))
             scale = 1 + (shrink - 1) * x
             shader.intro = Float(min(max((t - 0.1) / 1.5, 0), 1))
-            shader.spawn = Float(min(t / 1.0, 1))
+            // A big echo as it lands, then the steady pulse.
+            shader.spawn = Float(min(t / 0.3, 1) + 3 * exp(-pow((t - 0.35) / 0.22, 2)))
         }
         let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
         shader.rect = CGRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
