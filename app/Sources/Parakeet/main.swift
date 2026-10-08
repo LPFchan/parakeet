@@ -121,7 +121,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         UserDefaults.standard.set(true, forKey: "onboarded")
         let service = SMAppService.mainApp
         if onboarding.openAtLogin, service.status != .enabled { try? service.register() }
-        if !onboarding.openAtLogin, service.status == .enabled { try? service.unregister() }  // changed back after an early save
+        // Changed back after an early save: undone even if it's still awaiting approval.
+        if !onboarding.openAtLogin, [.enabled, .requiresApproval].contains(service.status) { try? service.unregister() }
     }
 
     private func finishOnboarding() {
