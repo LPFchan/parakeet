@@ -252,7 +252,7 @@ final class SnapView: NSView {
     /// Read: the shimmer gathers onto the paragraphs being translated, each outlined faintly.
     private func found(_ paragraphs: [(id: Int, box: CGRect)]) {
         guard !closing else { return }
-        waitingFor = Set(paragraphs.map(\.id))
+        waitingFor.formUnion(paragraphs.map(\.id))  // a forced read adds to what's still on its way
         for (id, box) in paragraphs where marks[id] == nil {
             let mark = CALayer()
             mark.frame = Self.points(box, job.scale).insetBy(dx: -3, dy: -2)
@@ -619,8 +619,7 @@ private struct DownloadOffer: View {
                 .buttonStyle(.plain)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white.opacity(0.6))
-                .padding(.leading, 4)
-                .keyboardShortcut(.cancelAction)
+                .padding(.leading, 4)  // no Esc: that closes the picture
             Button("Download") { done(missing.filter { chosen.contains($0.id) }.map(\.language)) }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
