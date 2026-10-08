@@ -53,6 +53,10 @@ final class SnapView: NSView {
     private let glow = CALayer()
     /// The screen itself, holding the marks, the translations and the drag outline.
     private let picture = CALayer()
+    /// The screen inside the picture's frame, zoomed and panned by pinch and scroll.
+    private let content = CALayer()
+    private var zoom: CGFloat = 1
+    private var pan = CGPoint.zero
     private let lens = CALayer()
 
     private var patches: [Patch] = []
@@ -111,8 +115,10 @@ final class SnapView: NSView {
 
         picture.bounds = bounds
         picture.position = center
-        picture.contents = job.image
-        picture.contentsScale = job.scale
+        content.frame = bounds
+        content.contents = job.image
+        content.contentsScale = job.scale
+        picture.addSublayer(content)
         picture.masksToBounds = true
         picture.cornerRadius = corner / shrink
         picture.transform = CATransform3DMakeScale(shrink, shrink, 1)
@@ -127,7 +133,7 @@ final class SnapView: NSView {
         lens.shadowOpacity = 0.9
         lens.shadowOffset = .zero
         lens.opacity = 0
-        picture.addSublayer(lens)
+        content.addSublayer(lens)
 
         // macOS's own download prompt hangs off this, so it sits in the middle.
         let host = NSHostingView(rootView: TranslationHost(job: job))
@@ -168,7 +174,7 @@ final class SnapView: NSView {
         pending.addSublayer(band)
         pendingShape.frame = bounds
         pending.mask = pendingShape
-        picture.addSublayer(pending)
+        content.addSublayer(pending)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -200,7 +206,7 @@ final class SnapView: NSView {
             blur.name = "blur"
             blur.setValue(6, forKey: kCIInputRadiusKey)
             ink.filters = [blur]
-            picture.insertSublayer(ink, below: lens)
+            content.insertSublayer(ink, below: lens)
             inks[patch.id] = ink
             // Its placeholder stops shimmering and firms up into a mark: hover it.
             waitingFor.remove(patch.id)
@@ -233,7 +239,7 @@ final class SnapView: NSView {
             mark.borderColor = CGColor(srgbRed: 0.45, green: 0.7, blue: 1, alpha: 0.22)
             mark.borderWidth = 1 / shrink
             mark.opacity = 0
-            picture.insertSublayer(mark, below: pending)
+            content.insertSublayer(mark, below: pending)
             marks[id] = mark
             spring(mark, "opacity", to: 1)
         }
@@ -326,7 +332,7 @@ final class SnapView: NSView {
             lens.cornerRadius = 8
             lens.borderWidth = 1.5 / shrink
             lens.borderColor = CGColor(srgbRed: 1, green: 0.45, blue: 0.45, alpha: 0.9)
-            picture.addSublayer(lens)
+            content.addSublayer(lens)
             let shake = CAKeyframeAnimation(keyPath: "position.x")
             shake.values = [0, -8, 7, -5, 3, 0].map { area.midX + $0 }
             shake.duration = 0.4
@@ -388,6 +394,7 @@ final class SnapView: NSView {
         for id in inks.keys where inks[id]!.opacity > 0 { ink(id, in: false) }
         spring(picture, "transform.scale", to: 1)
         spring(picture, "cornerRadius", to: 0)
+        spring(content, "transform", to: NSValue(caTransform3D: CATransform3DIdentity))  // un-zoomed on the way out
         spring(glow, "opacity", to: 0)
         spring(glow, "transform.scale", to: 1 / shrink)
         CATransaction.commit()
@@ -409,9 +416,54 @@ final class SnapView: NSView {
         layer.add(spring, forKey: keyPath)
     }
 
-    /// A point on the sheet, in the picture's own (unshrunk) coordinates.
+    /// A point on the sheet, in the screen's own coordinates: through the
+    /// picture's shrink, then the zoom and pan inside it.
     private func local(_ point: CGPoint) -> CGPoint {
-        CGPoint(x: (point.x - center.x) / shrink + center.x, y: (point.y - center.y) / shrink + center.y)
+        CGPoint(x: ((point.x - center.x) / shrink - pan.x) / zoom + center.x,
+                y: ((point.y - center.y) / shrink - pan.y) / zoom + center.y)
+    }
+
+    // MARK: Zoom
+
+    /// Pinching zooms in around the fingers; up to 6×.
+    override func magnify(with event: NSEvent) {
+        guard !closing else { return }
+        zoom(to: zoom * (1 + event.magnification), around: convert(event.locationInWindow, from: nil), animated: false)
+        // Let go almost back at 1×: back to the whole screen.
+        if event.phase == .ended, zoom < 1.05 { zoom(to: 1, around: center, animated: true) }
+    }
+
+    /// Double-tapping with two fingers: 2.5× there, or back to the whole screen.
+    override func smartMagnify(with event: NSEvent) {
+        guard !closing else { return }
+        zoom(to: zoom > 1.01 ? 1 : 2.5, around: convert(event.locationInWindow, from: nil), animated: true)
+    }
+
+    /// Zoomed in, two fingers move around.
+    override func scrollWheel(with event: NSEvent) {
+        guard !closing, zoom > 1 else { return }
+        let step: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
+        place(pan: CGPoint(x: pan.x + event.scrollingDeltaX * step / shrink, y: pan.y + event.scrollingDeltaY * step / shrink), animated: false)
+    }
+
+    /// Keeps the point of the screen under `point` (on the sheet) where it is.
+    private func zoom(to target: CGFloat, around point: CGPoint, animated: Bool) {
+        let fixed = local(point)
+        zoom = min(max(target, 1), 6)
+        let p = CGPoint(x: (point.x - center.x) / shrink, y: (point.y - center.y) / shrink)
+        place(pan: CGPoint(x: p.x - (fixed.x - center.x) * zoom, y: p.y - (fixed.y - center.y) * zoom), animated: animated)
+    }
+
+    /// Never past the screen's edges.
+    private func place(pan target: CGPoint, animated: Bool) {
+        let room = CGPoint(x: bounds.width * (zoom - 1) / 2, y: bounds.height * (zoom - 1) / 2)
+        pan = CGPoint(x: min(max(target.x, -room.x), room.x), y: min(max(target.y, -room.y), room.y))
+        let transform = CATransform3DScale(CATransform3DMakeTranslation(pan.x, pan.y, 0), zoom, zoom, 1)
+        if animated { return spring(content, "transform", to: NSValue(caTransform3D: transform)) }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)  // under the fingers, exactly
+        content.transform = transform
+        CATransaction.commit()
     }
 
     private func patch(at point: CGPoint) -> Patch? {
