@@ -36,26 +36,26 @@ final class SnapPanel: NSPanel {
     }
 }
 
-/// The screen springs down into a picture that the GPU takes apart at its rim (see
-/// `SnapEffect`). Once it's read, hovering a paragraph inks in its
-/// translation; dragging over an area keeps everything in it translated.
+/// The screen springs down into a picture that glows in its own colours: its
+/// edges, blurred and stretched outward, spill into the dark around it. Once
+/// it's read, hovering a paragraph inks in its translation; dragging over an
+/// area keeps everything in it translated.
 final class SnapView: NSView {
     var onDismiss: () -> Void = {}
     private(set) var closing = false
     private let job: SnapJob
     private let shrink: CGFloat = 0.86
     private let corner: CGFloat = 22
+    /// How far the glow reaches past the picture's edge, in points.
+    private let spread: CGFloat = 200
 
     private let backdrop = CALayer()
-    private var shader: ShaderLayer?
-    /// Laid exactly over the picture the shader draws: the translations, the reading scan, the lens.
-    private let sheet = CALayer()
+    private let glow = CALayer()
+    /// The screen itself, holding the translations, the reading scan and the lens.
+    private let picture = CALayer()
     private let scan = CAGradientLayer()
     private let lens = CALayer()
 
-    private var started: CFTimeInterval = 0
-    private var closedAt: CFTimeInterval?
-    private var whenClosed: (() -> Void)?
     private var patches: [Patch] = []
     private var inks: [Int: CALayer] = [:]
     private var hovered: Int?
@@ -80,41 +80,42 @@ final class SnapView: NSView {
         let root = layer!
         let size = frame.size
 
-        // The dark the picture floats in: the screen itself, far out of focus.
         backdrop.frame = bounds
-        backdrop.contents = Self.blurred(job.image)
-        backdrop.contentsGravity = .resizeAspectFill
-        let tint = CALayer()
-        tint.frame = bounds
-        tint.backgroundColor = CGColor(gray: 0.02, alpha: 0.82)
-        backdrop.addSublayer(tint)
+        backdrop.backgroundColor = CGColor(gray: 0.03, alpha: 1)
         root.addSublayer(backdrop)
 
-        sheet.bounds = bounds
-        sheet.position = center
-        sheet.transform = CATransform3DMakeScale(shrink, shrink, 1)
-        sheet.masksToBounds = true
-        sheet.cornerRadius = corner / shrink
-        if let shader = ShaderLayer(image: job.image, size: size, effect: .current, band: 56, corner: corner, view: self) {
-            shader.frame = bounds
-            shader.contentsScale = job.scale
-            shader.drawableSize = CGSize(width: size.width * job.scale, height: size.height * job.scale)
-            shader.rect = bounds
-            shader.onFrame = { [weak self] now in self?.frame(at: now) }
-            root.addSublayer(shader)
-            self.shader = shader
-        } else {
-            sheet.contents = job.image  // no Metal: just the picture
-            sheet.contentsScale = job.scale
-        }
-        root.addSublayer(sheet)
+        // The glow: the picture's own edges stretched out and blurred, fading into the dark.
+        glow.frame = pictureFrame.insetBy(dx: -spread, dy: -spread)
+        glow.contents = Self.extended(job.image, size: pictureFrame.size, spread: spread)
+        glow.contentsGravity = .resize
+        let fade = CAShapeLayer()
+        fade.frame = glow.bounds
+        fade.path = CGPath(roundedRect: glow.bounds.insetBy(dx: spread, dy: spread),  // the picture's own edge
+                           cornerWidth: corner, cornerHeight: corner, transform: nil)
+        fade.fillColor = .black
+        fade.shadowColor = .black
+        fade.shadowOpacity = 1
+        fade.shadowRadius = spread * 0.42  // fading from the picture's edge, gone before the glow's own
+        fade.shadowOffset = .zero
+        glow.mask = fade
+        glow.opacity = 0
+        root.addSublayer(glow)
+
+        picture.bounds = bounds
+        picture.position = center
+        picture.contents = job.image
+        picture.contentsScale = job.scale
+        picture.masksToBounds = true
+        picture.cornerRadius = corner / shrink
+        picture.transform = CATransform3DMakeScale(shrink, shrink, 1)
+        root.addSublayer(picture)
 
         // While the screen is read, a band of light runs down the picture.
         scan.frame = CGRect(x: 0, y: -260, width: size.width, height: 260)
         scan.colors = [NSColor.clear.cgColor, CGColor(srgbRed: 0.4, green: 0.65, blue: 1, alpha: 0.25), NSColor.clear.cgColor]
         scan.compositingFilter = "screenBlendMode"
         scan.opacity = 0
-        sheet.addSublayer(scan)
+        picture.addSublayer(scan)
 
         lens.cornerRadius = 8
         lens.borderWidth = 1.5 / shrink
@@ -125,7 +126,7 @@ final class SnapView: NSView {
         lens.shadowOpacity = 0.9
         lens.shadowOffset = .zero
         lens.opacity = 0
-        sheet.addSublayer(lens)
+        picture.addSublayer(lens)
 
         let host = NSHostingView(rootView: TranslationHost(job: job))
         host.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
@@ -140,52 +141,28 @@ final class SnapView: NSView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    /// The screen springs down to the picture, and its glow swells up behind it.
     func play() {
-        started = CACurrentMediaTime()
-        if shader == nil {
-            let spring = CASpringAnimation(keyPath: "transform.scale")
-            spring.fromValue = 1
-            spring.toValue = shrink
-            spring.damping = 16
-            spring.stiffness = 120
-            spring.duration = spring.settlingDuration
-            sheet.add(spring, forKey: "shrink")
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.settle() }
-    }
-
-    /// Each display frame: where the picture is and how far along it is.
-    private func frame(at now: CFTimeInterval) {
-        guard let shader else { return }
-        var scale: CGFloat
-        if let closedAt {
-            let c = min((now - closedAt) / 0.55, 1)
-            let eased = c * c * (3 - 2 * c)
-            scale = shrink + (1 - shrink) * eased
-            shader.intro = Float(1 - eased)
-            shader.spawn = Float(1 - eased)
-            shader.pace = 1  // what's left flies off as it closes
-            if c >= 1, let done = whenClosed {
-                whenClosed = nil
-                shader.invalidate()
-                DispatchQueue.main.async(execute: done)
-            }
-        } else {
-            let t = now - started
-            // A spring down to the picture's size, with a little overshoot.
-            let omega = 11.0, zeta = 0.62, damped = omega * (1 - zeta * zeta).squareRoot()
-            let x = 1 - exp(-zeta * omega * t) * (cos(damped * t) + zeta * omega / damped * sin(damped * t))
-            scale = 1 + (shrink - 1) * x
-            shader.intro = Float(min(max((t - 0.1) / 1.5, 0), 1))
-            // A big echo as it lands; then time slows almost to a stop, so
-            // the echoes hang still instead of pulsing on.
-            shader.spawn = Float(min(t / 0.3, 1) + 3 * exp(-pow((t - 0.35) / 0.22, 2)))
-            let calm = min(max((t - 1.0) / 1.2, 0), 1)
-            shader.pace = Float(1 - 0.96 * calm * calm * (3 - 2 * calm))
-        }
-        let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
-        shader.rect = CGRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
-        if let window { shader.mouse = convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil) }
+        let spring = CASpringAnimation(keyPath: "transform.scale")
+        spring.fromValue = 1
+        spring.toValue = shrink
+        spring.damping = 18
+        spring.stiffness = 140
+        spring.duration = spring.settlingDuration
+        picture.add(spring, forKey: "shrink")
+        let corners = CABasicAnimation(keyPath: "cornerRadius")
+        corners.fromValue = 0
+        corners.duration = 0.4
+        picture.add(corners, forKey: "round")
+        let swell = CASpringAnimation(keyPath: "transform.scale")
+        swell.fromValue = 1 / shrink
+        swell.toValue = 1
+        swell.damping = 18
+        swell.stiffness = 140
+        swell.duration = swell.settlingDuration
+        glow.add(swell, forKey: "swell")
+        fade(glow, to: 1, duration: 0.6)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.settle() }
     }
 
     /// The picture has landed: the reading begins to show.
@@ -219,7 +196,7 @@ final class SnapView: NSView {
             blur.name = "blur"
             blur.setValue(6, forKey: kCIInputRadiusKey)
             ink.filters = [blur]
-            sheet.insertSublayer(ink, below: scan)
+            picture.insertSublayer(ink, below: scan)
             inks[patch.id] = ink
         }
         fade(scan, to: 0, duration: 0.5)
@@ -313,23 +290,26 @@ final class SnapView: NSView {
         }
     }
 
-    /// Back to the screen: the translations melt, the rim heals and the
+    /// Back to the screen: the translations melt, the glow goes out and the
     /// picture grows back to fill it, exactly where everything was.
     func finish(then done: @escaping () -> Void) {
         closing = true
         follow?.invalidate()
-        fade(sheet, to: 0, duration: 0.2)
-        guard shader != nil else {
-            CATransaction.begin()
-            CATransaction.setAnimationDuration(0.42)
-            CATransaction.setCompletionBlock(done)
-            sheet.opacity = 1
-            sheet.transform = CATransform3DIdentity
-            CATransaction.commit()
-            return
-        }
-        whenClosed = done
-        closedAt = CACurrentMediaTime()
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.18)
+        lens.opacity = 0
+        scan.opacity = 0
+        for id in inks.keys where inks[id]!.opacity > 0 { ink(id, in: false) }
+        CATransaction.commit()
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.38)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
+        CATransaction.setCompletionBlock(done)
+        picture.transform = CATransform3DIdentity
+        picture.cornerRadius = 0
+        glow.opacity = 0
+        glow.transform = CATransform3DMakeScale(1 / shrink, 1 / shrink, 1)
+        CATransaction.commit()
     }
 
     private func fade(_ layer: CALayer?, to opacity: Float, duration: Double = 0.3) {
@@ -355,11 +335,20 @@ final class SnapView: NSView {
         CGRect(x: box.minX / scale, y: box.minY / scale, width: box.width / scale, height: box.height / scale)
     }
 
-    /// The screen, small and softly blurred.
-    private static func blurred(_ image: CGImage) -> CGImage? {
-        let small = CIImage(cgImage: image).transformed(by: CGAffineTransform(scaleX: 0.1, y: 0.1))
-        let soft = small.clampedToExtent().applyingGaussianBlur(sigma: 8).cropped(to: small.extent)
-        return CIContext().createCGImage(soft, from: small.extent)
+    /// The screen at the picture's size, its edge pixels stretched `spread`
+    /// outward on every side, then blurred and made a little richer: a glow
+    /// in the screen's own colours. Worked at a quarter size; it's all blur.
+    private static func extended(_ image: CGImage, size: CGSize, spread: CGFloat) -> CGImage? {
+        let k: CGFloat = 0.25
+        let source = CIImage(cgImage: image)
+        let fitted = source.transformed(by: CGAffineTransform(scaleX: size.width * k / source.extent.width,
+                                                              y: size.height * k / source.extent.height))
+        let pad = spread * k
+        let area = CGRect(x: -pad, y: -pad, width: size.width * k + 2 * pad, height: size.height * k + 2 * pad)
+        let glow = fitted.clampedToExtent()
+            .applyingGaussianBlur(sigma: 14)
+            .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.9, kCIInputBrightnessKey: 0.1])
+            .cropped(to: area)
+        return CIContext().createCGImage(glow, from: area)
     }
-
 }
