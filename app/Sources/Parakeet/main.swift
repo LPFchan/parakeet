@@ -384,7 +384,8 @@ if commands.count >= 3, commands[0] == "--snap" {
     // What the card would tick: macOS asks before downloading each.
     job.onMissing = { missing in
         print("offered:", missing.map { "\($0.language.minimalIdentifier)\($0.likely ? "" : " (unticked)") “\($0.sample)”" })
-        job.download(missing.filter(\.likely).map(\.language))
+        // Downloading means macOS asking first; only with PARAKEET_DOWNLOAD set, so a run never stops to wait.
+        job.download(ProcessInfo.processInfo.environment["PARAKEET_DOWNLOAD"] == nil ? [] : missing.filter(\.likely).map(\.language))
     }
     job.onFinished = {
         try! NSBitmapImageRep(cgImage: Painter.compose(patches, over: source)!).representation(using: .png, properties: [:])!
