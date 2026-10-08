@@ -155,9 +155,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.state = language?.minimalIdentifier == translator.target?.minimalIdentifier ? .on : .off
         }
         menu.setSubmenu(translate, for: menu.addItem(withTitle: String(localized: "Translate To"), action: nil, keyEquivalent: ""))
-        let area = menu.addItem(withTitle: String(localized: "Translate Screen Area"), action: #selector(SnapTranslate.start), keyEquivalent: "1")
-        area.keyEquivalentModifierMask = [.command, .shift]
-        area.target = snap
+        let screen = menu.addItem(withTitle: String(localized: "Translate Screen"), action: #selector(SnapTranslate.start), keyEquivalent: "1")
+        screen.keyEquivalentModifierMask = [.command, .shift]
+        screen.target = snap
         menu.addItem(.separator())
         let login = menu.addItem(withTitle: String(localized: "Open at Login"), action: #selector(toggleOpenAtLogin), keyEquivalent: "")
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off

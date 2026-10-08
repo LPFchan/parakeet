@@ -29,7 +29,7 @@ leaves it.
   beside the picture puts the screen back. Languages not downloaded yet are
   offered in a bar under the picture. macOS asks once for Screen Recording.
 - The menu bar icon has a Captions on/off switch (⌘L), Copy Transcript,
-  Translate To, Translate Screen Area (⇧⌘1), Open at Login and Check for Updates. It checks for updates on every launch
+  Translate To, Translate Screen (⇧⌘1), Open at Login and Check for Updates. It checks for updates on every launch
   (and daily while running) and offers to install them.
 - The same switch works from a terminal:
 
