@@ -135,7 +135,7 @@ final class SnapView: NSView {
         job.onReady = { [weak self] patches in self?.read(patches) }
         job.onFail = { [weak self] in
             NSSound.beep()
-            self?.fade(self?.scan, to: 0)
+            if let scan = self?.scan { self?.spring(scan, "opacity", to: 0) }
         }
     }
 
@@ -143,26 +143,11 @@ final class SnapView: NSView {
 
     /// The screen springs down to the picture, and its glow swells up behind it.
     func play() {
-        let spring = CASpringAnimation(keyPath: "transform.scale")
-        spring.fromValue = 1
-        spring.toValue = shrink
-        spring.damping = 18
-        spring.stiffness = 140
-        spring.duration = spring.settlingDuration
-        picture.add(spring, forKey: "shrink")
-        let corners = CABasicAnimation(keyPath: "cornerRadius")
-        corners.fromValue = 0
-        corners.duration = 0.4
-        picture.add(corners, forKey: "round")
-        let swell = CASpringAnimation(keyPath: "transform.scale")
-        swell.fromValue = 1 / shrink
-        swell.toValue = 1
-        swell.damping = 18
-        swell.stiffness = 140
-        swell.duration = swell.settlingDuration
-        glow.add(swell, forKey: "swell")
-        fade(glow, to: 1, duration: 0.6)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.settle() }
+        spring(picture, "transform.scale", to: shrink, from: 1)
+        spring(picture, "cornerRadius", to: corner / shrink, from: 0)
+        spring(glow, "transform.scale", to: 1, from: 1 / shrink)
+        spring(glow, "opacity", to: 1, from: 0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.settle() }
     }
 
     /// The picture has landed: the reading begins to show.
@@ -176,7 +161,7 @@ final class SnapView: NSView {
             run.repeatCount = .infinity
             run.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             scan.add(run, forKey: "run")
-            fade(scan, to: 1)
+            spring(scan, "opacity", to: 1)
         }
         // The pointer is followed by its position: a sheet over another app
         // doesn't reliably get mouse-moved events.
@@ -199,7 +184,7 @@ final class SnapView: NSView {
             picture.insertSublayer(ink, below: scan)
             inks[patch.id] = ink
         }
-        fade(scan, to: 0, duration: 0.5)
+        spring(scan, "opacity", to: 0)
         for area in waiting { pin(in: area) }
         waiting = []
         hovered = nil
@@ -212,35 +197,26 @@ final class SnapView: NSView {
         guard id != hovered else { return }
         if let old = hovered, !pinned.contains(old) { ink(old, in: false) }
         hovered = id
-        CATransaction.begin()
-        CATransaction.setAnimationDuration(0.2)
-        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
         if let id, let box = patches.first(where: { $0.id == id })?.box {
-            lens.frame = Self.points(box, job.scale).insetBy(dx: -6, dy: -6)
-            lens.opacity = 1
+            let frame = Self.points(box, job.scale).insetBy(dx: -6, dy: -6)
+            // From nowhere it appears in place; from another paragraph it glides over.
+            if lens.opacity < 0.01 { lens.frame = frame } else {
+                spring(lens, "position", to: NSValue(point: CGPoint(x: frame.midX, y: frame.midY)))
+                spring(lens, "bounds", to: NSValue(rect: CGRect(origin: .zero, size: frame.size)))
+            }
+            spring(lens, "opacity", to: 1)
             ink(id, in: true)
         } else {
-            lens.opacity = 0
+            spring(lens, "opacity", to: 0)
         }
-        CATransaction.commit()
     }
 
     /// Ink: the translation settles in out of a blur, or melts back into one.
     private func ink(_ id: Int, in show: Bool) {
         guard let layer = inks[id] else { return }
-        let duration = show ? 0.3 : 0.2
-        let blur = CABasicAnimation(keyPath: "filters.blur.inputRadius")
-        blur.fromValue = show ? 6 : 0
-        blur.toValue = show ? 0 : 6
-        blur.duration = duration
-        layer.setValue(show ? 0 : 6, forKeyPath: "filters.blur.inputRadius")
-        layer.add(blur, forKey: "blur")
-        CATransaction.begin()
-        CATransaction.setAnimationDuration(duration)
-        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
-        layer.opacity = show ? 1 : 0
-        layer.transform = show ? CATransform3DIdentity : CATransform3DMakeScale(1.04, 1.04, 1)
-        CATransaction.commit()
+        spring(layer, "filters.blur.inputRadius", to: show ? 0 : 6)
+        spring(layer, "opacity", to: show ? 1 : 0)
+        spring(layer, "transform.scale", to: show ? 1 : 1.04)
     }
 
     /// Everything in a dragged area stays translated, top to bottom.
@@ -279,7 +255,7 @@ final class SnapView: NSView {
         if dragging {
             dragging = false
             let area = lens.frame
-            fade(lens, to: 0)
+            spring(lens, "opacity", to: 0)
             hovered = nil
             return patches.isEmpty ? waiting.append(area) : pin(in: area)
         }
@@ -291,32 +267,36 @@ final class SnapView: NSView {
     }
 
     /// Back to the screen: the translations melt, the glow goes out and the
-    /// picture grows back to fill it, exactly where everything was.
+    /// picture springs back to fill it, exactly where everything was.
     func finish(then done: @escaping () -> Void) {
         closing = true
         follow?.invalidate()
         CATransaction.begin()
-        CATransaction.setAnimationDuration(0.18)
-        lens.opacity = 0
-        scan.opacity = 0
-        for id in inks.keys where inks[id]!.opacity > 0 { ink(id, in: false) }
-        CATransaction.commit()
-        CATransaction.begin()
-        CATransaction.setAnimationDuration(0.38)
-        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
         CATransaction.setCompletionBlock(done)
-        picture.transform = CATransform3DIdentity
-        picture.cornerRadius = 0
-        glow.opacity = 0
-        glow.transform = CATransform3DMakeScale(1 / shrink, 1 / shrink, 1)
+        spring(lens, "opacity", to: 0)
+        spring(scan, "opacity", to: 0)
+        for id in inks.keys where inks[id]!.opacity > 0 { ink(id, in: false) }
+        spring(picture, "transform.scale", to: 1)
+        spring(picture, "cornerRadius", to: 0)
+        spring(glow, "opacity", to: 0)
+        spring(glow, "transform.scale", to: 1 / shrink)
         CATransaction.commit()
     }
 
-    private func fade(_ layer: CALayer?, to opacity: Float, duration: Double = 0.3) {
+    /// Every motion is the same crisp spring: critically damped, no bounce,
+    /// settled in about a third of a second. It starts from wherever the
+    /// layer is on screen, so a reversal mid-way stays smooth.
+    private func spring(_ layer: CALayer, _ keyPath: String, to value: Any, from: Any? = nil) {
+        let spring = CASpringAnimation(perceptualDuration: 0.34, bounce: 0)
+        spring.keyPath = keyPath
+        spring.fromValue = from ?? layer.presentation()?.value(forKeyPath: keyPath) ?? layer.value(forKeyPath: keyPath)
+        spring.toValue = value
+        spring.duration = spring.settlingDuration
         CATransaction.begin()
-        CATransaction.setAnimationDuration(duration)
-        layer?.opacity = opacity
+        CATransaction.setDisableActions(true)
+        layer.setValue(value, forKeyPath: keyPath)
         CATransaction.commit()
+        layer.add(spring, forKey: keyPath)
     }
 
     /// A point on the sheet, in the picture's own (unshrunk) coordinates.
