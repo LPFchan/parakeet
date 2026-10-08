@@ -3,15 +3,34 @@ import CoreImage
 import QuartzCore
 import SwiftUI
 
-/// Glimm's "prism": the colours of the sweep, the ring and the sparks.
-private let prism: [CGColor] = [
-    CGColor(srgbRed: 1.00, green: 0.42, blue: 0.42, alpha: 1),
-    CGColor(srgbRed: 1.00, green: 0.36, blue: 0.75, alpha: 1),
-    CGColor(srgbRed: 0.62, green: 0.40, blue: 1.00, alpha: 1),
-    CGColor(srgbRed: 0.31, green: 0.52, blue: 1.00, alpha: 1),
-    CGColor(srgbRed: 0.20, green: 0.88, blue: 0.90, alpha: 1),
-    CGColor(srgbRed: 0.48, green: 1.00, blue: 0.55, alpha: 1),
-]
+private func rgb(_ hex: UInt32, _ alpha: CGFloat = 1) -> CGColor {
+    CGColor(srgbRed: CGFloat(hex >> 16 & 0xFF) / 255, green: CGFloat(hex >> 8 & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
+}
+
+/// How the picture is dressed while trying looks out:
+/// `defaults write plus.lost.parakeet snapLook glow|fireflies|glass|siri`.
+enum SnapLook: String {
+    case glow, fireflies, glass, siri
+    static var current: SnapLook { SnapLook(rawValue: UserDefaults.standard.string(forKey: "snapLook") ?? "") ?? .glow }
+
+    /// A few colours that belong together, for the sweep, the glow and the sparks.
+    var colors: [CGColor] {
+        switch self {
+        case .glow, .siri: return [rgb(0x3D7BFF), rgb(0x8A5CFF), rgb(0xFF5FA2), rgb(0xFFB259), rgb(0x4FD1FF)]
+        case .fireflies: return [rgb(0xFFC46B), rgb(0xFF9F4A), rgb(0xFFE3A3)]
+        case .glass: return [rgb(0xFFFFFF), rgb(0xCFE8FF), rgb(0xFFFFFF)]
+        }
+    }
+
+    /// What the dark around the picture is tinted.
+    var shade: CGColor {
+        switch self {
+        case .glow, .siri: return rgb(0x05060A, 0.72)
+        case .fireflies: return rgb(0x070B1C, 0.8)
+        case .glass: return rgb(0x0A0C12, 0.45)
+        }
+    }
+}
 
 /// The ⇧⌘1 sheet over the whole screen. Esc, ⇧⌘1 again, or a click beside
 /// the picture puts the screen back.
@@ -20,7 +39,7 @@ final class SnapPanel: NSPanel {
     private let onClose: () -> Void
 
     init(screen: NSScreen, job: SnapJob, onClose: @escaping () -> Void) {
-        view = SnapView(frame: CGRect(origin: .zero, size: screen.frame.size), job: job)
+        view = SnapView(frame: CGRect(origin: .zero, size: screen.frame.size), job: job, look: .current)
         self.onClose = onClose
         super.init(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         level = .screenSaver
@@ -47,29 +66,34 @@ final class SnapPanel: NSPanel {
 }
 
 /// A band of light sweeps across the screen, and behind it the screen springs
-/// down into a picture floating in its own blurred glow, sparks pouring off
-/// its edge. Once it's read, hovering a paragraph inks in its translation;
+/// down into a picture whose rim crumbles into dust, drifting off into its own
+/// blurred dark. Once it's read, hovering a paragraph inks in its translation;
 /// dragging over an area keeps everything in it translated.
 final class SnapView: NSView {
     var onDismiss: () -> Void = {}
     private(set) var closing = false
     private let job: SnapJob
-    private let shrink: CGFloat = 0.84
-    private let corner: CGFloat = 18
-    private lazy var bandWidth = bounds.width * 0.28
+    private let look: SnapLook
+    private let shrink: CGFloat = 0.86
+    private let corner: CGFloat = 22
+    /// How far in from its edge the picture crumbles, in points on the sheet.
+    private let crumble: CGFloat = 48
+    private lazy var bandWidth = bounds.width * 0.3
 
     private let backdrop = CALayer()
-    private let motes = CAEmitterLayer()
-    private let ring = CALayer()
+    /// The look's dressing: behind the picture, over it, and drifting in the dark.
+    private let under = CALayer()
+    private let over = CALayer()
+    private let drop = CALayer()
     private let picture = CALayer()
+    private var dust: DustLayer?
     private let scan = CAGradientLayer()
     private let lens = CALayer()
-    private let sparks = CAEmitterLayer()
+    private var emitters: [CAEmitterLayer] = []
     /// The screen as it was, until the sweep has passed.
     private let before = CALayer()
     private let sweep = CAGradientLayer()
     private let band = CALayer()
-    private let trail = CAEmitterLayer()
 
     private var patches: [Patch] = []
     private var inks: [Int: CALayer] = [:]
@@ -87,8 +111,9 @@ final class SnapView: NSView {
         bounds.insetBy(dx: bounds.width * (1 - shrink) / 2, dy: bounds.height * (1 - shrink) / 2)
     }
 
-    init(frame: CGRect, job: SnapJob) {
+    init(frame: CGRect, job: SnapJob, look: SnapLook) {
         self.job = job
+        self.look = look
         super.init(frame: frame)
         wantsLayer = true
         layerUsesCoreImageFilters = true
@@ -96,108 +121,77 @@ final class SnapView: NSView {
         let size = frame.size
 
         backdrop.frame = bounds
-        backdrop.contents = Self.blurred(job.image)
+        backdrop.contents = Self.blurred(job.image, sigma: 6)
         backdrop.contentsGravity = .resizeAspectFill
-        let shade = CAGradientLayer()
-        shade.type = .radial
-        shade.frame = bounds
-        shade.colors = [NSColor.black.withAlphaComponent(0.35), NSColor.black.withAlphaComponent(0.85)].map(\.cgColor)
-        shade.startPoint = CGPoint(x: 0.5, y: 0.5)
-        shade.endPoint = CGPoint(x: 1, y: 1)
-        backdrop.addSublayer(shade)
+        let tint = CALayer()
+        tint.frame = bounds
+        tint.backgroundColor = look.shade
+        backdrop.addSublayer(tint)
+        let vignette = CAGradientLayer()
+        vignette.type = .radial
+        vignette.frame = bounds
+        vignette.colors = [NSColor.clear.cgColor, NSColor.black.withAlphaComponent(0.55).cgColor]
+        vignette.startPoint = CGPoint(x: 0.5, y: 0.5)
+        vignette.endPoint = CGPoint(x: 1.05, y: 1.05)
+        backdrop.addSublayer(vignette)
         root.addSublayer(backdrop)
 
-        // Slow, soft motes of colour drifting in the background, and the odd twinkle.
-        motes.frame = bounds
-        motes.emitterShape = .rectangle
-        motes.emitterMode = .surface
-        motes.emitterPosition = center
-        motes.emitterSize = size
-        motes.renderMode = .additive
-        motes.birthRate = 0
-        motes.emitterCells = prism.map { color in
-            Self.cell(Self.dot(64, core: 0.0), color: color.copy(alpha: 0.22)!, birthRate: 4, lifetime: 9, velocity: 14, scale: 0.6) {
-                $0.lifetimeRange = 4; $0.velocityRange = 10; $0.scaleRange = 0.4; $0.alphaSpeed = -0.02
-            }
-        } + [Self.cell(Self.glint(48), color: .white, birthRate: 40, lifetime: 1.6, velocity: 4, scale: 0.2) {
-            $0.scaleRange = 0.12; $0.scaleSpeed = -0.08; $0.alphaSpeed = -0.6; $0.spinRange = 2
-        }]
-        root.addSublayer(motes)
+        under.frame = bounds
+        under.opacity = 0
+        root.addSublayer(under)
 
-        // A ring of every colour turning slowly round the picture, glowing where it meets the dark.
-        ring.frame = pictureFrame.insetBy(dx: -40, dy: -40)
-        let colors = CAGradientLayer()
-        colors.type = .conic
-        let side = hypot(ring.bounds.width, ring.bounds.height)
-        colors.frame = CGRect(x: ring.bounds.midX - side / 2, y: ring.bounds.midY - side / 2, width: side, height: side)
-        colors.colors = prism + [prism[0]]
-        colors.startPoint = CGPoint(x: 0.5, y: 0.5)
-        colors.endPoint = CGPoint(x: 0.5, y: 0)
-        let turn = CABasicAnimation(keyPath: "transform.rotation.z")
-        turn.fromValue = 0
-        turn.toValue = 2 * Double.pi
-        turn.duration = 7
-        turn.repeatCount = .infinity
-        colors.add(turn, forKey: "turn")
-        ring.addSublayer(colors)
-        let edge = CAShapeLayer()
-        edge.frame = ring.bounds
-        edge.path = CGPath(roundedRect: ring.bounds.insetBy(dx: 40, dy: 40), cornerWidth: corner, cornerHeight: corner, transform: nil)
-        edge.fillColor = nil
-        edge.strokeColor = .black
-        edge.lineWidth = 3
-        edge.shadowColor = .black
-        edge.shadowOpacity = 1
-        edge.shadowRadius = 18
-        edge.shadowOffset = .zero
-        ring.mask = edge
-        ring.opacity = 0
-        root.addSublayer(ring)
+        // A deep, soft drop, so the picture floats.
+        drop.frame = pictureFrame.insetBy(dx: crumble, dy: crumble)
+        drop.shadowPath = CGPath(roundedRect: drop.bounds, cornerWidth: corner, cornerHeight: corner, transform: nil)
+        drop.shadowColor = .black
+        drop.shadowOpacity = 0.6
+        drop.shadowRadius = 48
+        drop.shadowOffset = CGSize(width: 0, height: 24)
+        drop.opacity = 0
+        root.addSublayer(drop)
 
         picture.bounds = bounds
         picture.position = center
         picture.contents = job.image
         picture.contentsScale = job.scale
-        picture.masksToBounds = true
+        // Its rim, crumbling: the dust below breaks off from these holes.
+        let rim = CALayer()
+        rim.frame = picture.bounds
+        rim.contents = DustLayer.erodedMask(size: bounds.size, band: crumble / shrink, corner: corner / shrink)
+        picture.mask = rim
         root.addSublayer(picture)
 
         // While the screen is read, a band of light runs down the picture.
         scan.frame = CGRect(x: 0, y: -260, width: size.width, height: 260)
-        scan.colors = [NSColor.clear.cgColor, prism[4].copy(alpha: 0.35)!, prism[3].copy(alpha: 0.15)!, NSColor.clear.cgColor]
+        scan.colors = [NSColor.clear.cgColor, look.colors[0].copy(alpha: 0.28)!, look.colors[1].copy(alpha: 0.12)!, NSColor.clear.cgColor]
         scan.compositingFilter = "screenBlendMode"
         scan.opacity = 0
         picture.addSublayer(scan)
 
         lens.cornerRadius = 8
         lens.borderWidth = 1.5 / shrink
-        lens.borderColor = NSColor.white.withAlphaComponent(0.9).cgColor
-        lens.backgroundColor = prism[4].copy(alpha: 0.08)
-        lens.shadowColor = prism[4]
+        lens.borderColor = NSColor.white.withAlphaComponent(0.85).cgColor
+        lens.backgroundColor = look.colors[0].copy(alpha: 0.07)
+        lens.shadowColor = look.colors[0]
         lens.shadowRadius = 14
-        lens.shadowOpacity = 1
+        lens.shadowOpacity = 0.9
         lens.shadowOffset = .zero
         lens.opacity = 0
         picture.addSublayer(lens)
 
-        // Sparks pouring off the picture's edge, in every colour.
-        sparks.frame = bounds
-        sparks.emitterShape = .rectangle
-        sparks.emitterMode = .outline
-        sparks.emitterPosition = center
-        sparks.emitterSize = pictureFrame.size
-        sparks.renderMode = .additive
-        sparks.birthRate = 0
-        sparks.emitterCells = prism.flatMap { color in [
-            Self.cell(Self.dot(24, core: 0.25), color: color, birthRate: 70, lifetime: 1.4, velocity: 55, scale: 0.18) {
-                $0.lifetimeRange = 0.8; $0.velocityRange = 45; $0.scaleRange = 0.1; $0.scaleSpeed = -0.1; $0.alphaSpeed = -0.6
-            },
-            Self.cell(Self.dot(64, core: 0.0), color: color.copy(alpha: 0.35)!, birthRate: 5, lifetime: 2.5, velocity: 18, scale: 0.6) {
-                $0.alphaSpeed = -0.25; $0.scaleRange = 0.3
-            },
-        ] } + [Self.cell(Self.glint(48), color: .white, birthRate: 30, lifetime: 0.9, velocity: 30, scale: 0.3) {
-            $0.spin = 2; $0.spinRange = 3; $0.alphaSpeed = -1; $0.scaleRange = 0.15
-        }]
-        root.addSublayer(sparks)
+        if let dust = DustLayer(image: job.image, imageScale: job.scale, picture: pictureFrame, shrink: shrink, band: crumble, view: self) {
+            dust.frame = bounds
+            dust.contentsScale = job.scale
+            dust.drawableSize = CGSize(width: size.width * job.scale, height: size.height * job.scale)
+            root.addSublayer(dust)
+            self.dust = dust
+        }
+
+        over.frame = bounds
+        over.opacity = 0
+        root.addSublayer(over)
+
+        dress()
 
         before.frame = bounds
         before.contents = job.image
@@ -211,34 +205,21 @@ final class SnapView: NSView {
         before.mask = sweep
         root.addSublayer(before)
 
-        // Glimm's band: every colour top to bottom, a soft bell of light side to side, a hot core.
+        // Glimm's band, in the look's colours: top to bottom they shift, side
+        // to side they fall away like a bell, with a brighter core.
         band.frame = CGRect(x: -bandWidth, y: 0, width: bandWidth, height: size.height)
         band.compositingFilter = "screenBlendMode"
         let hues = CAGradientLayer()
         hues.frame = band.bounds
-        hues.colors = prism
-        hues.mask = Self.bell(band.bounds, tightness: 18, peak: 1)
+        hues.colors = look.colors
+        hues.mask = Self.bell(band.bounds, tightness: 16, peak: 0.95)
         band.addSublayer(hues)
         let core = CALayer()
         core.frame = band.bounds
         core.backgroundColor = .white
-        core.mask = Self.bell(band.bounds, tightness: 90, peak: 0.7)
+        core.mask = Self.bell(band.bounds, tightness: 110, peak: 0.55)
         band.addSublayer(core)
         root.addSublayer(band)
-
-        // Glitter shed by the band as it passes.
-        trail.frame = bounds
-        trail.emitterShape = .rectangle
-        trail.emitterMode = .surface
-        trail.emitterSize = CGSize(width: 12, height: size.height)
-        trail.emitterPosition = CGPoint(x: -bandWidth / 2, y: center.y)
-        trail.renderMode = .additive
-        trail.emitterCells = prism.map { color in
-            Self.cell(Self.dot(24, core: 0.25), color: color, birthRate: 90, lifetime: 0.9, velocity: 45, scale: 0.16) {
-                $0.emissionLongitude = .pi; $0.emissionRange = 0.7; $0.velocityRange = 30; $0.alphaSpeed = -1.1; $0.scaleRange = 0.08
-            }
-        }
-        root.addSublayer(trail)
 
         let host = NSHostingView(rootView: TranslationHost(job: job))
         host.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
@@ -252,6 +233,69 @@ final class SnapView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    /// Each look's glow and particles.
+    private func dress() {
+        // Glows sit just inside the crumble, so only their light reaches past it.
+        let frame = pictureFrame.insetBy(dx: crumble * 0.6, dy: crumble * 0.6)
+        switch look {
+        case .glow:
+            // Light bleeding out from behind the picture, slowly turning and breathing.
+            under.addSublayer(rim(frame, width: 0, softness: 80, period: 14, opacity: 1, filled: true))
+            under.addSublayer(rim(frame, width: 0, softness: 34, period: -19, opacity: 0.8, filled: true))
+            breathe(under, low: 0.7)
+        case .siri:
+            // Siri's edge: colours that flow along the picture's rim and spill onto it.
+            under.addSublayer(rim(frame, width: 0, softness: 60, period: 9, opacity: 0.6, filled: true))
+            over.addSublayer(rim(frame, width: 6, softness: 18, period: 7, opacity: 0.9))
+            over.addSublayer(rim(frame, width: 6, softness: 18, period: -11, opacity: 0.65, blend: "screenBlendMode"))
+            over.addSublayer(rim(frame, width: 2.5, softness: 2, period: 7, opacity: 1, blend: "screenBlendMode"))
+            breathe(over, low: 0.8, period: 1.6)
+        case .fireflies:
+            under.addSublayer(rim(frame, width: 0, softness: 80, period: 30, opacity: 0.5, filled: true))
+            breathe(under, low: 0.6, period: 3.5)
+            // Three depths: far and sharp, middle, and near, big and out of focus.
+            let warm = look.colors
+            emit(on: bounds, cells: [
+                Self.cell(Self.dot(16, core: 0.4), color: warm[2], birthRate: 26, lifetime: 7, velocity: 4, scale: 0.18) {
+                    $0.scaleRange = 0.08; $0.alphaRange = 0.5; $0.alphaSpeed = -0.12; $0.lifetimeRange = 3
+                },
+                Self.cell(Self.dot(32, core: 0.2), color: warm[0], birthRate: 9, lifetime: 6, velocity: 10, scale: 0.35) {
+                    $0.scaleRange = 0.15; $0.alphaSpeed = -0.15; $0.lifetimeRange = 2; $0.velocityRange = 6
+                },
+                Self.cell(Self.dot(128, core: 0), color: warm[1].copy(alpha: 0.16)!, birthRate: 1.4, lifetime: 9, velocity: 16, scale: 0.9) {
+                    $0.scaleRange = 0.4; $0.alphaSpeed = -0.015; $0.velocityRange = 8
+                },
+            ], prewarm: 6)
+        case .glass:
+            // A pane of frosted glass the picture rests on, its rim catching the light.
+            let paneFrame = pictureFrame.insetBy(dx: -18, dy: -18)
+            let pane = CALayer()
+            pane.frame = paneFrame
+            pane.cornerRadius = corner + 18
+            pane.masksToBounds = true
+            pane.contents = Self.blurred(job.image, sigma: 3, brighten: 0.12)
+            pane.contentsGravity = .resize
+            pane.contentsRect = CGRect(x: paneFrame.minX / bounds.width, y: paneFrame.minY / bounds.height,
+                                       width: paneFrame.width / bounds.width, height: paneFrame.height / bounds.height)
+            let frost = CALayer()
+            frost.frame = pane.bounds
+            frost.backgroundColor = rgb(0xFFFFFF, 0.08)
+            pane.addSublayer(frost)
+            under.addSublayer(pane)
+            // A thin rim, bright where light falls on it (top left), dim where it doesn't.
+            let edge = CAGradientLayer()
+            edge.frame = paneFrame
+            edge.colors = [rgb(0xFFFFFF, 0.75), rgb(0xFFFFFF, 0.08), rgb(0xFFFFFF, 0.3)]
+            edge.startPoint = CGPoint(x: 0, y: 0)
+            edge.endPoint = CGPoint(x: 1, y: 1)
+            edge.mask = Self.stroke(edge.bounds, corner: corner + 18, width: 1.2, softness: 0)
+            under.addSublayer(edge)
+            // A glint of light travelling round the rim.
+            under.addSublayer(rim(paneFrame, corner: corner + 18, width: 2, softness: 5, period: 6, opacity: 1,
+                                  colors: [rgb(0xFFFFFF, 0), rgb(0xFFFFFF, 0), rgb(0xFFFFFF, 0.95), rgb(0xFFFFFF, 0), rgb(0xFFFFFF, 0)]))
+        }
+    }
 
     func play() {
         let size = bounds.size
@@ -270,7 +314,6 @@ final class SnapView: NSView {
         CATransaction.setCompletionBlock { [weak self] in self?.settle() }
         let start = -bandWidth / 2, end = size.width + bandWidth / 2
         move(band, "position.x", from: start, to: end)
-        move(trail, "emitterPosition", from: CGPoint(x: start, y: center.y), to: CGPoint(x: end, y: center.y))
         let from = start / size.width, to = end / size.width
         move(sweep, "locations", from: [from, from + 0.001], to: [to, to + 0.001])
         CATransaction.commit()
@@ -279,35 +322,29 @@ final class SnapView: NSView {
         let spring = CASpringAnimation(keyPath: "transform.scale")
         spring.fromValue = 1
         spring.toValue = shrink
-        spring.damping = 15
-        spring.stiffness = 130
+        spring.damping = 16
+        spring.stiffness = 120
         spring.duration = spring.settlingDuration
         picture.transform = CATransform3DMakeScale(shrink, shrink, 1)
         picture.add(spring, forKey: "shrink")
-        let round = CABasicAnimation(keyPath: "cornerRadius")
-        round.fromValue = 0
-        round.toValue = corner / shrink
-        round.duration = 0.6
-        picture.cornerRadius = corner / shrink
-        picture.add(round, forKey: "round")
-        motes.beginTime = CACurrentMediaTime() - 4  // the background is already alive when it appears
-        motes.birthRate = 1
+        fade(drop, to: 1, duration: 0.9)
     }
 
-    /// The sweep has passed: the band fades, the ring lights, sparks burst off
-    /// the edge, and the reading begins to show.
+    /// The sweep has passed: the band fades, the rim starts crumbling, the
+    /// look comes up, and the reading begins to show.
     private func settle() {
         guard !closing else { return }
         before.removeFromSuperlayer()
-        trail.birthRate = 0
-        fade(band, to: 0, duration: 0.22)
-        fade(ring, to: 1, duration: 0.5)
-        burst()
+        fade(band, to: 0, duration: 0.25)
+        fade(under, to: 1, duration: 0.7)
+        fade(over, to: 1, duration: 0.7)
+        dust?.start()
+        for emitter in emitters { emitter.birthRate = 1 }
         if patches.isEmpty {
             let run = CABasicAnimation(keyPath: "position.y")
             run.fromValue = -130
             run.toValue = bounds.height + 130
-            run.duration = 1.6
+            run.duration = 1.8
             run.repeatCount = .infinity
             run.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             scan.add(run, forKey: "run")
@@ -335,7 +372,6 @@ final class SnapView: NSView {
             inks[patch.id] = ink
         }
         fade(scan, to: 0, duration: 0.5)
-        burst()
         for area in waiting { pin(in: area) }
         waiting = []
         hovered = nil
@@ -426,34 +462,91 @@ final class SnapView: NSView {
         }
     }
 
-    /// Back to the screen: the translations melt, the sparks die down and the
-    /// picture grows back to fill it, exactly where everything was.
+    /// Back to the screen: the translations melt, the dust settles, and the
+    /// picture grows back whole to fill it, exactly where everything was.
     func finish(then done: @escaping () -> Void) {
         closing = true
         follow?.invalidate()
-        sparks.birthRate = 0
-        trail.birthRate = 0
+        dust?.stop()
+        picture.mask = nil
         CATransaction.begin()
-        CATransaction.setAnimationDuration(0.18)
-        for layer in [lens, ring, scan, sparks, trail, band] { layer.opacity = 0 }
+        CATransaction.setAnimationDuration(0.2)
+        for layer in [lens, scan, under, over, band, drop] + emitters { layer.opacity = 0 }
         for id in inks.keys where inks[id]!.opacity > 0 { ink(id, in: false) }
         CATransaction.commit()
+        for emitter in emitters { emitter.birthRate = 0 }
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.42)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
-        CATransaction.setCompletionBlock(done)
+        CATransaction.setCompletionBlock { [weak self] in
+            self?.dust?.invalidate()
+            done()
+        }
         before.removeFromSuperlayer()
         picture.transform = CATransform3DIdentity
-        picture.cornerRadius = 0
         CATransaction.commit()
     }
 
-    private func burst() {
-        sparks.birthRate = 6
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self, !closing else { return }
-            sparks.birthRate = 1
-        }
+    /// A ring of the look's colours turning round a rounded rectangle; `width`
+    /// is its solid core and `softness` how far it glows out to either side.
+    private func rim(_ frame: CGRect, corner: CGFloat? = nil, width: CGFloat, softness: CGFloat, period: Double, opacity: Float,
+                     colors: [CGColor]? = nil, blend: String? = nil, filled: Bool = false) -> CALayer {
+        let margin = width / 2 + softness * 2
+        let ring = CALayer()
+        ring.frame = frame.insetBy(dx: -margin, dy: -margin)
+        ring.opacity = opacity
+        ring.compositingFilter = blend
+        let colours = CAGradientLayer()
+        colours.type = .conic
+        let side = hypot(ring.bounds.width, ring.bounds.height)
+        colours.frame = CGRect(x: ring.bounds.midX - side / 2, y: ring.bounds.midY - side / 2, width: side, height: side)
+        let palette = colors ?? look.colors
+        colours.colors = palette + [palette[0]]
+        colours.startPoint = CGPoint(x: 0.5, y: 0.5)
+        colours.endPoint = CGPoint(x: 0.5, y: 0)
+        let turn = CABasicAnimation(keyPath: "transform.rotation.z")
+        turn.fromValue = 0
+        turn.toValue = period > 0 ? 2 * Double.pi : -2 * Double.pi
+        turn.duration = abs(period)
+        turn.repeatCount = .infinity
+        colours.add(turn, forKey: "turn")
+        ring.addSublayer(colours)
+        let mask = Self.stroke(ring.bounds.insetBy(dx: margin, dy: margin), in: ring.bounds, corner: corner ?? self.corner,
+                               width: width, softness: softness)
+        if filled { mask.fillColor = .black }  // light from the whole area behind, not a line
+        ring.mask = mask
+        return ring
+    }
+
+    /// Slowly brighter and dimmer, on a holder inside the layer so fading the layer itself still works.
+    private func breathe(_ layer: CALayer, low: Float, period: Double = 2.8) {
+        let holder = CALayer()
+        holder.frame = layer.bounds
+        for sublayer in layer.sublayers ?? [] { holder.addSublayer(sublayer) }
+        layer.addSublayer(holder)
+        let breath = CABasicAnimation(keyPath: "opacity")
+        breath.fromValue = 1
+        breath.toValue = low
+        breath.duration = period
+        breath.autoreverses = true
+        breath.repeatCount = .infinity
+        breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        holder.add(breath, forKey: "breathe")
+    }
+
+    private func emit(on area: CGRect, cells: [CAEmitterCell], prewarm: Double = 0) {
+        let emitter = CAEmitterLayer()
+        emitter.frame = bounds
+        emitter.emitterShape = .rectangle
+        emitter.emitterMode = .surface
+        emitter.emitterPosition = CGPoint(x: area.midX, y: area.midY)
+        emitter.emitterSize = area.size
+        emitter.renderMode = .additive
+        emitter.emitterCells = cells
+        emitter.birthRate = 0
+        if prewarm > 0 { emitter.beginTime = CACurrentMediaTime() - prewarm }
+        under.addSublayer(emitter)
+        emitters.append(emitter)
     }
 
     private func fade(_ layer: CALayer?, to opacity: Float, duration: Double = 0.3) {
@@ -479,11 +572,32 @@ final class SnapView: NSView {
         CGRect(x: box.minX / scale, y: box.minY / scale, width: box.width / scale, height: box.height / scale)
     }
 
-    /// The screen, small and softly blurred, for the dark around the picture.
-    private static func blurred(_ image: CGImage) -> CGImage? {
+    /// The screen, small and softly blurred.
+    private static func blurred(_ image: CGImage, sigma: Double, brighten: Double = 0) -> CGImage? {
         let small = CIImage(cgImage: image).transformed(by: CGAffineTransform(scaleX: 0.1, y: 0.1))
-        let soft = small.clampedToExtent().applyingGaussianBlur(sigma: 6).cropped(to: small.extent)
+        var soft = small.clampedToExtent().applyingGaussianBlur(sigma: sigma).cropped(to: small.extent)
+        if brighten > 0 {
+            soft = soft.applyingFilter("CIColorControls", parameters: [kCIInputBrightnessKey: brighten, kCIInputSaturationKey: 1.2])
+        }
         return CIContext().createCGImage(soft, from: small.extent)
+    }
+
+    /// A mask tracing a rounded rectangle: solid `width` wide, fading out over `softness`.
+    private static func stroke(_ rect: CGRect, in bounds: CGRect? = nil, corner: CGFloat, width: CGFloat, softness: CGFloat) -> CAShapeLayer {
+        let shape = CAShapeLayer()
+        shape.frame = bounds ?? rect
+        let path = bounds == nil ? rect.insetBy(dx: width / 2, dy: width / 2) : rect
+        shape.path = CGPath(roundedRect: path, cornerWidth: corner, cornerHeight: corner, transform: nil)
+        shape.fillColor = nil
+        shape.strokeColor = .black
+        shape.lineWidth = width
+        if softness > 0 {
+            shape.shadowColor = .black
+            shape.shadowOpacity = 1
+            shape.shadowRadius = softness
+            shape.shadowOffset = .zero
+        }
+        return shape
     }
 
     /// A mask that's brightest down the middle and falls away like a bell to each side.
@@ -523,17 +637,4 @@ final class SnapView: NSView {
         context.drawRadialGradient(gradient, startCenter: middle, startRadius: 0, endCenter: middle, endRadius: CGFloat(side) / 2, options: [])
         return context.makeImage()!
     }
-
-    /// A four-pointed glint: a bright dot crossed by two thin rays.
-    private static func glint(_ side: Int) -> CGImage {
-        let context = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0,
-                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        let s = CGFloat(side), ray = s * 0.06
-        context.setFillColor(CGColor(gray: 1, alpha: 0.9))
-        context.fillEllipse(in: CGRect(x: 0, y: s / 2 - ray / 2, width: s, height: ray))
-        context.fillEllipse(in: CGRect(x: s / 2 - ray / 2, y: 0, width: ray, height: s))
-        context.draw(dot(side, core: 0.1), in: CGRect(x: s * 0.3, y: s * 0.3, width: s * 0.4, height: s * 0.4))
-        return context.makeImage()!
-    }
 }
-
