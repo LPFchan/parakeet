@@ -176,7 +176,9 @@ final class SnapJob {
         let written = found.filter { $0.text.contains(where: \.isLetter) }  // not just numbers
         // A short paragraph is easily misread, so only a confident guess
         // overrides the language of the screen as a whole.
-        let japanese = written.contains { $0.text.unicodeScalars.contains { (0x3041...0x30FF).contains($0.value) } }
+        // Kana in this batch, or a Japanese screen around a forced read of just a label.
+        let japanese = dominant?.languageCode == "ja"
+            || written.contains { $0.text.unicodeScalars.contains { (0x3041...0x30FF).contains($0.value) } }
         let foreign: [Paragraph] = written.compactMap { paragraph in
             var paragraph = paragraph
             paragraph.source = Self.language(of: paragraph.text, confidence: 0.8) ?? dominant

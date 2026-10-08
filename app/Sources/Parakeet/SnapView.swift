@@ -163,7 +163,10 @@ final class SnapView: NSView {
             // Added to an offer still showing, not in place of it: its languages have nowhere else to wait.
             guard let self, !closing else { return }
             let showing = strip.missing ?? []
-            strip.missing = showing + missing.filter { new in !showing.contains { $0.id == new.id } }
+            let added = missing.filter { new in !showing.contains { $0.id == new.id } }
+            // Ticks already changed stay as they are; a new language starts ticked if it's likely.
+            strip.chosen.formUnion(added.filter(\.likely).map(\.id))
+            strip.missing = showing + added
         }
         job.onFinished = { [weak self] in self?.lightUp() }
         job.onFail = { [weak self] in
@@ -528,6 +531,8 @@ final class Strip {
     }
     /// Languages to offer for download; nil when there's nothing to ask.
     var missing: [MissingLanguage]?
+    /// The offered languages ticked for download.
+    var chosen: Set<String> = []
     var closing = false
     @ObservationIgnored var onShowAll: (Bool) -> Void = { _ in }
     @ObservationIgnored var onDownload: ([Locale.Language]) -> Void = { _ in }
@@ -554,11 +559,11 @@ private struct StripView: View {
             }
             .buttonStyle(.plain)
             if let missing = strip.missing {
-                DownloadOffer(missing: missing) { chosen in
+                DownloadOffer(missing: missing, chosen: Binding(get: { strip.chosen }, set: { strip.chosen = $0 })) { chosen in
                     withAnimation(.spring(duration: 0.34, bounce: 0)) { strip.missing = nil }
+                    strip.chosen = []
                     strip.onDownload(chosen)
                 }
-                .id(missing.map(\.id))  // a language added later starts ticked or not on its own merits
                 .transition(.opacity.combined(with: .offset(y: 8)))
             }
         }
@@ -586,14 +591,8 @@ private struct Pill: ViewModifier {
 /// one chip per language, its text on hover.
 private struct DownloadOffer: View {
     let missing: [MissingLanguage]
+    @Binding var chosen: Set<String>
     let done: ([Locale.Language]) -> Void
-    @State private var chosen: Set<String>
-
-    init(missing: [MissingLanguage], done: @escaping ([Locale.Language]) -> Void) {
-        self.missing = missing
-        self.done = done
-        _chosen = State(initialValue: Set(missing.filter(\.likely).map(\.id)))
-    }
 
     var body: some View {
         HStack(spacing: 10) {
