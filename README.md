@@ -20,10 +20,14 @@ leaves it.
   small underneath. That language is taken as your own: while the audio is
   in it, the box stays hidden. macOS asks once to download each language it
   needs.
-- ⇧⌘1 translates text on screen: drag over an area, and its text is
-  repainted in place, in the language captions translate into (or your
-  Mac's language when that's off). A click or Esc puts the original back.
-  macOS asks once for Screen Recording.
+- ⇧⌘1 translates the screen: it shrinks into a picture, every paragraph on it
+  is read and translated (into the language captions translate into, or
+  your Mac's language when that's off), and the picture glows once it's
+  done. Hover a paragraph to see it translated in place; drag over an area
+  to keep it translated, or to read an area again where nothing was found.
+  Pinch to zoom, two fingers to move around. Esc, ⇧⌘1 again or a click
+  beside the picture puts the screen back. Languages not downloaded yet are
+  offered in a bar under the picture. macOS asks once for Screen Recording.
 - The menu bar icon has a Captions on/off switch (⌘L), Copy Transcript,
   Translate To, Translate Screen Area (⇧⌘1), Open at Login and Check for Updates. It checks for updates on every launch
   (and daily while running) and offers to install them.
@@ -60,12 +64,18 @@ audio permission and downloads the speech model (~640 MB) from Hugging Face.
   to Apple's Translation framework, naming the source language itself
   (`NaturalLanguage` detects it) so macOS doesn't stop to ask. Pieces of an
   unfinished sentence are re-translated together, shown dim until it ends.
-- `SnapTranslate.swift` is ⇧⌘1. It captures the dragged area with
-  ScreenCaptureKit, reads it with Vision, groups lines into paragraphs (a
-  sentence often wraps), translates each paragraph whole, then paints over it
-  with the colour around it and writes the translation in the text's own
-  colour, as large as fits. The result sits exactly over the area it came
-  from, so the screen seems to change language.
+- `SnapTranslate.swift` is ⇧⌘1's work. It captures the screen with
+  ScreenCaptureKit and reads it with Vision on the Neural Engine: whole, then
+  in four overlapping quarters in the languages the whole read found (read
+  whole, Vision drops short lines like a sentence-ending "ん。"). Lines group
+  into paragraphs, split where a line stops short or a bullet starts, so a
+  sentence that wraps is translated whole and a list stays a list. Every
+  downloaded language translates at once, paragraph by paragraph, nearest the
+  pointer first. Each translation is painted over its original in the colour
+  around it, in the text's own colour, size, weight and line spacing.
+- `SnapView.swift` is what you see: the picture, its glow (the screen's own
+  edges, blurred and stretched outward), the shimmer while it works, hover,
+  drag and zoom. Every motion is the same crisp spring.
 
 ## Development
 
