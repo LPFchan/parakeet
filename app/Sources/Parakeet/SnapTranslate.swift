@@ -97,6 +97,8 @@ final class SnapJob {
     @ObservationIgnored var onFail: () -> Void = {}
     /// Everything chosen has been translated.
     @ObservationIgnored var onFinished: () -> Void = {}
+    /// Paragraphs that won't be translated after all (their download declined or failed).
+    @ObservationIgnored var onDropped: ([Int]) -> Void = { _ in }
     /// Paragraphs nearest this point (pixels) are translated first.
     @ObservationIgnored var focus: CGPoint?
     @ObservationIgnored private let target: Locale.Language
@@ -110,6 +112,8 @@ final class SnapJob {
     @ObservationIgnored private var missing: [MissingLanguage] = []
     /// Paragraphs a session has taken on, so none is translated twice.
     @ObservationIgnored private var claimed: Set<Int> = []
+    /// Given up on; a forced read of their area may find them again.
+    @ObservationIgnored private var dropped: Set<Int> = []
     @ObservationIgnored private var painted = false
     @ObservationIgnored private var painter: Painter?
     /// The whole-screen read, which a forced read waits for.
@@ -155,7 +159,7 @@ final class SnapJob {
         let area = area.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height)).integral
         guard area.width > 4, area.height > 4, let crop = image.cropping(to: area) else { return 0 }
         await reading?.value  // what the whole read finds isn't found twice
-        let known = paragraphs.map(\.box)
+        let known = paragraphs.indices.filter { !dropped.contains($0) }.map { paragraphs[$0].box }
         let lines = await Task.detached {
             Self.recognize(Self.enlarged(crop), correct: true).map { line in
                 Line(text: line.text, box: CGRect(x: area.minX + line.box.minX / 2, y: area.minY + line.box.minY / 2,
@@ -209,7 +213,8 @@ final class SnapJob {
         let languages = ready, offered = absent
         return await MainActor.run {
             // Two forced reads of one area at once mustn't add it twice.
-            let kept = kept.filter { new in !paragraphs.contains { Self.overlap($0.box, new.box) > 0.5 } }
+            let live = paragraphs.indices.filter { !dropped.contains($0) }.map { paragraphs[$0].box }
+            let kept = kept.filter { new in !live.contains { Self.overlap($0, new.box) > 0.5 } }
             let first = paragraphs.count
             paragraphs += kept
             onFound(kept.indices.map { (first + $0, kept[$0].box) })
@@ -224,6 +229,11 @@ final class SnapJob {
 
     /// Translates the chosen languages; for each, macOS first asks for permission to download it.
     func download(_ languages: [Locale.Language]) {
+        // The languages not chosen: their paragraphs won't be translated.
+        drop(paragraphs.indices.filter { i in
+            !claimed.contains(i) && !dropped.contains(i) && paragraphs[i].translation.isEmpty
+                && !languages.contains { paragraphs[i].source?.isSame(as: $0) == true }
+        })
         guard !languages.isEmpty else { return sessions.isEmpty ? (painted ? onFinished() : onFail()) : () }
         downloads += languages.dropFirst()
         start(languages[0])
@@ -258,7 +268,7 @@ final class SnapJob {
             }
         } catch {
             // Declined, or it can't be translated after all: left as it was, free to try again.
-            claimed.subtract(mine.filter { paragraphs[$0].translation.isEmpty })
+            drop(mine.filter { paragraphs[$0].translation.isEmpty })
         }
         if Task.isCancelled { return }
         sessions.removeAll { $0.id == entry.id }
@@ -266,6 +276,13 @@ final class SnapJob {
         guard sessions.isEmpty else { return }
         if !missing.isEmpty { return askForMissing() }
         painted ? onFinished() : onFail()
+    }
+
+    private func drop(_ ids: [Int]) {
+        guard !ids.isEmpty else { return }
+        dropped.formUnion(ids)
+        claimed.subtract(ids)
+        onDropped(ids)
     }
 
     private func askForMissing() {

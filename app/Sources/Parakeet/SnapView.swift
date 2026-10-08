@@ -169,6 +169,7 @@ final class SnapView: NSView {
             strip.missing = showing + added
         }
         job.onFinished = { [weak self] in self?.lightUp() }
+        job.onDropped = { [weak self] ids in self?.drop(ids) }
         job.onFail = { [weak self] in
             NSSound.beep()  // and it stays unlit
             if let self { spring(pending, "opacity", to: 0) }
@@ -239,7 +240,6 @@ final class SnapView: NSView {
         }
         reshape()
         for area in dragged { pin(in: area) }
-        hovered = nil
     }
 
     /// Where the text is, before it's read: each line shimmers.
@@ -279,6 +279,17 @@ final class SnapView: NSView {
         pendingShape.path = path
         CATransaction.commit()
         if rects == nil { spring(pending, "opacity", to: waitingFor.isEmpty && forcing.isEmpty ? 0 : 1) }
+    }
+
+    /// Paragraphs that won't be translated: their marks go.
+    private func drop(_ ids: [Int]) {
+        for id in ids {
+            waitingFor.remove(id)
+            guard let mark = marks.removeValue(forKey: id) else { continue }
+            spring(mark, "opacity", to: 0)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { mark.removeFromSuperlayer() }
+        }
+        reshape()
     }
 
     /// Everything that can be translated is: the picture lights up.
@@ -392,6 +403,8 @@ final class SnapView: NSView {
             dragging = false
             let area = lens.frame
             spring(lens, "opacity", to: 0)
+            // What was hovered when the drag began goes back, unless it's kept.
+            if let old = hovered, !pinned.contains(old), !strip.showAll { ink(old, in: false) }
             hovered = nil
             dragged.append(area)
             // Nothing known to translate there: read just that area again, harder.
