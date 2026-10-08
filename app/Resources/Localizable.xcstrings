@@ -7912,6 +7912,866 @@
           }
         }
       }
+    },
+    "Translate what's on screen": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ترجمة ما على الشاشة"
+          }
+        },
+        "bg": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Превеждайте това, което е на екрана"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Překládejte, co je na obrazovce"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oversæt det, der er på skærmen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übersetze, was auf dem Bildschirm steht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traduce lo que hay en pantalla"
+          }
+        },
+        "et": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tõlgi seda, mis on ekraanil"
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Käännä se, mitä näytöllä on"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traduisez ce qui est à l’écran"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "स्क्रीन पर जो है, उसका अनुवाद करें"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prevedite ono što je na zaslonu"
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fordítsd le, ami a képernyőn van"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traduci ciò che è sullo schermo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面の文字を翻訳"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면에 보이는 것을 번역하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oversett det som er på skjermen"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertaal wat er op je scherm staat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tłumacz to, co jest na ekranie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traduza o que está na tela"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traduza o que está no ecrã"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tradu ce este pe ecran"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переводите то, что на экране"
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prekladajte, čo je na obrazovke"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Översätt det som syns på skärmen"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekrandakileri çevirin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перекладайте те, що на екрані"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch những gì trên màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "翻译屏幕上的内容"
+          }
+        }
+      }
+    },
+    "Press ⇧⌘1 and Parakeet reads the text on your screen and translates it right where it is, on this Mac. Nothing is recorded or sent anywhere.": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اضغط ⇧⌘1 ليقرأ Parakeet النص على شاشتك ويترجمه في مكانه، على هذا الـ Mac. لا يُسجَّل أي شيء ولا يُرسَل إلى أي مكان."
+          }
+        },
+        "bg": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Натиснете ⇧⌘1 и Parakeet прочита текста на екрана и го превежда точно там, където е, на този Mac. Нищо не се записва и не се изпраща никъде."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stiskněte ⇧⌘1 a Parakeet přečte text na obrazovce a přeloží ho přímo na místě, na tomto Macu. Nic se nenahrává ani nikam neodesílá."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryk på ⇧⌘1, så læser Parakeet teksten på skærmen og oversætter den lige der, hvor den står, på denne Mac. Intet optages eller sendes nogen steder hen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drücke ⇧⌘1, und Parakeet liest den Text auf deinem Bildschirm und übersetzt ihn direkt an Ort und Stelle, auf diesem Mac. Nichts wird aufgezeichnet oder irgendwohin gesendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsa ⇧⌘1 y Parakeet lee el texto de tu pantalla y lo traduce justo donde está, en este Mac. No se graba ni se envía nada."
+          }
+        },
+        "et": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vajuta ⇧⌘1 ja Parakeet loeb ekraanil oleva teksti ning tõlgib selle otse oma kohal, selles Macis. Midagi ei salvestata ega saadeta kuhugi."
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paina ⇧⌘1, niin Parakeet lukee näytön tekstin ja kääntää sen juuri siinä, missä se on, tällä Macilla. Mitään ei tallenneta eikä lähetetä minnekään."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appuyez sur ⇧⌘1 : Parakeet lit le texte de votre écran et le traduit là où il se trouve, sur ce Mac. Rien n’est enregistré ni envoyé."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⇧⌘1 दबाएँ, और Parakeet आपकी स्क्रीन का टेक्स्ट पढ़कर उसका वहीं अनुवाद करता है, इसी Mac पर। कुछ भी रिकॉर्ड या कहीं भेजा नहीं जाता।"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pritisnite ⇧⌘1 i Parakeet čita tekst na zaslonu te ga prevodi točno ondje gdje jest, na ovom Macu. Ništa se ne snima niti šalje."
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nyomd meg a ⇧⌘1-et, és a Parakeet elolvassa a képernyőn lévő szöveget, majd ott helyben lefordítja, ezen a Macen. Semmit nem rögzít és nem küld el."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premi ⇧⌘1 e Parakeet legge il testo sullo schermo e lo traduce proprio dove si trova, su questo Mac. Nulla viene registrato o inviato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⇧⌘1 を押すと、Parakeet が画面上のテキストを読み取り、その場で翻訳します。処理はこの Mac 上で行われ、録画や送信は一切されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⇧⌘1을 누르면 Parakeet이 화면의 텍스트를 읽어 그 자리에서 번역합니다. 모두 이 Mac에서 처리되며, 아무것도 녹화되거나 전송되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trykk ⇧⌘1, så leser Parakeet teksten på skjermen og oversetter den akkurat der den står, på denne Macen. Ingenting tas opp eller sendes noe sted."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Druk op ⇧⌘1 en Parakeet leest de tekst op je scherm en vertaalt die ter plekke, op deze Mac. Er wordt niets opgenomen of verstuurd."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naciśnij ⇧⌘1, a Parakeet odczyta tekst na ekranie i przetłumaczy go dokładnie tam, gdzie jest, na tym Macu. Nic nie jest nagrywane ani nigdzie wysyłane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pressione ⇧⌘1 e o Parakeet lê o texto da tela e o traduz bem onde ele está, neste Mac. Nada é gravado nem enviado."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prima ⇧⌘1 e o Parakeet lê o texto do ecrã e tradu-lo exatamente onde está, neste Mac. Nada é gravado nem enviado."
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apasă ⇧⌘1, iar Parakeet citește textul de pe ecran și îl traduce chiar acolo unde se află, pe acest Mac. Nimic nu este înregistrat sau trimis nicăieri."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите ⇧⌘1, и Parakeet прочитает текст на экране и переведёт его прямо на месте, на этом Mac. Ничего не записывается и никуда не отправляется."
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stlačte ⇧⌘1 a Parakeet prečíta text na obrazovke a preloží ho priamo na mieste, na tomto Macu. Nič sa nenahráva ani nikam neodosiela."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tryck på ⇧⌘1 så läser Parakeet texten på skärmen och översätter den precis där den står, på den här datorn. Inget spelas in eller skickas någonstans."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⇧⌘1’e basın; Parakeet ekranınızdaki metni okuyup olduğu yerde, bu Mac’te çevirir. Hiçbir şey kaydedilmez veya bir yere gönderilmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Натисніть ⇧⌘1, і Parakeet прочитає текст на екрані та перекладе його просто на місці, на цьому Mac. Нічого не записується і нікуди не надсилається."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhấn ⇧⌘1 và Parakeet sẽ đọc văn bản trên màn hình rồi dịch ngay tại chỗ, trên máy Mac này. Không có gì được ghi lại hay gửi đi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按下 ⇧⌘1，Parakeet 会读取屏幕上的文字并在原处翻译，全部在这台 Mac 上完成。不会录制或发送任何内容。"
+          }
+        }
+      }
+    },
+    "macOS will ask for Screen Recording, and may ask to reopen Parakeet.": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيطلب macOS إذن تسجيل الشاشة، وقد يطلب إعادة فتح Parakeet."
+          }
+        },
+        "bg": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS ще поиска разрешение за запис на екрана и може да поиска да отворите Parakeet отново."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS požádá o povolení nahrávání obrazovky a může požádat o znovuotevření Parakeetu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS beder om skærmoptagelse og beder måske om at genåbne Parakeet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS fragt nach der Bildschirmaufnahme und bittet eventuell, Parakeet neu zu öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS pedirá permiso de grabación de pantalla y puede que pida volver a abrir Parakeet."
+          }
+        },
+        "et": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS küsib ekraanisalvestuse luba ja võib paluda Parakeeti uuesti avada."
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS pyytää näytön tallennuksen lupaa ja voi pyytää avaamaan Parakeetin uudelleen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS demandera l’autorisation d’enregistrer l’écran, et pourra demander de rouvrir Parakeet."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS स्क्रीन रिकॉर्डिंग की अनुमति माँगेगा, और Parakeet को फिर से खोलने को कह सकता है।"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS će zatražiti snimanje zaslona i možda ponovno otvaranje Parakeeta."
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A macOS képernyőfelvételi engedélyt kér, és kérheti a Parakeet újranyitását."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS chiederà la registrazione dello schermo e potrebbe chiedere di riaprire Parakeet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS が画面収録の許可を求め、Parakeet の再起動を求めることがあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS가 화면 기록 권한을 요청하고, Parakeet을 다시 열도록 할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS ber om skjermopptak og kan be om å åpne Parakeet på nytt."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS vraagt om schermopname en vraagt mogelijk om Parakeet opnieuw te openen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS poprosi o nagrywanie ekranu i może poprosić o ponowne otwarcie Parakeet."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O macOS pedirá a gravação de tela e poderá pedir para reabrir o Parakeet."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O macOS pedirá a gravação do ecrã e poderá pedir para reabrir o Parakeet."
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS va cere înregistrarea ecranului și poate cere redeschiderea Parakeet."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS запросит запись экрана и может попросить перезапустить Parakeet."
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS požiada o nahrávanie obrazovky a môže požiadať o opätovné otvorenie Parakeetu."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS ber om skärminspelning och kan be dig öppna Parakeet igen."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS Ekran Kaydı izni isteyecek ve Parakeet’i yeniden açmanızı isteyebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS попросить дозвіл на запис екрана й може попросити перевідкрити Parakeet."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS sẽ yêu cầu quyền Ghi màn hình và có thể yêu cầu mở lại Parakeet."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 会请求屏幕录制权限，并可能要求重新打开 Parakeet。"
+          }
+        }
+      }
+    },
+    "Allow Screen Recording": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح بتسجيل الشاشة"
+          }
+        },
+        "bg": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разреши запис на екрана"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povolit nahrávání obrazovky"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad skærmoptagelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirmaufnahme erlauben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir grabación de pantalla"
+          }
+        },
+        "et": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luba ekraanisalvestus"
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salli näytön tallennus"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser l’enregistrement de l’écran"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "स्क्रीन रिकॉर्डिंग की अनुमति दें"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopusti snimanje zaslona"
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Képernyőfelvétel engedélyezése"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti registrazione schermo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面収録を許可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 기록 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat skjermopptak"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schermopname toestaan"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwól na nagrywanie ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir gravação de tela"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir gravação do ecrã"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite înregistrarea ecranului"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить запись экрана"
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povoliť nahrávanie obrazovky"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillåt skärminspelning"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran Kaydına İzin Ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити запис екрана"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép ghi màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许屏幕录制"
+          }
+        }
+      }
+    },
+    "Screen Recording allowed": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم السماح بتسجيل الشاشة"
+          }
+        },
+        "bg": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записът на екрана е разрешен"
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nahrávání obrazovky povoleno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skærmoptagelse tilladt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildschirmaufnahme erlaubt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grabación de pantalla permitida"
+          }
+        },
+        "et": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekraanisalvestus lubatud"
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Näytön tallennus sallittu"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrement de l’écran autorisé"
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "स्क्रीन रिकॉर्डिंग की अनुमति है"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snimanje zaslona dopušteno"
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Képernyőfelvétel engedélyezve"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrazione schermo consentita"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面収録が許可されています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 기록이 허용됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjermopptak tillatt"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schermopname toegestaan"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nagrywanie ekranu dozwolone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gravação de tela permitida"
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gravação do ecrã permitida"
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Înregistrarea ecranului este permisă"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запись экрана разрешена"
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nahrávanie obrazovky povolené"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skärminspelning tillåten"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekran Kaydına izin verildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запис екрана дозволено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã cho phép ghi màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已允许屏幕录制"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
