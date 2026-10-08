@@ -1,6 +1,7 @@
 import AppKit
 import ServiceManagement
 import Sparkle
+import SwiftUI
 import Translation
 
 /// `Parakeet <command>` talks to the running app over distributed notifications.
@@ -154,9 +155,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.state = language?.minimalIdentifier == translator.target?.minimalIdentifier ? .on : .off
         }
         menu.setSubmenu(translate, for: menu.addItem(withTitle: String(localized: "Translate To"), action: nil, keyEquivalent: ""))
-        let area = menu.addItem(withTitle: String(localized: "Translate Screen Area"), action: #selector(SnapTranslate.start), keyEquivalent: "1")
-        area.keyEquivalentModifierMask = [.command, .shift]
-        area.target = snap
+        let screen = menu.addItem(withTitle: String(localized: "Translate Screen"), action: #selector(SnapTranslate.start), keyEquivalent: "1")
+        screen.keyEquivalentModifierMask = [.command, .shift]
+        screen.target = snap
         menu.addItem(.separator())
         let login = menu.addItem(withTitle: String(localized: "Open at Login"), action: #selector(toggleOpenAtLogin), keyEquivalent: "")
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
@@ -363,26 +364,39 @@ if commands.count == 2, commands[0] == "--bench" {
     RunLoop.main.run()
 }
 
-// `Parakeet --snap in.png out.png [language]` reads, translates and repaints
-// an image as ⇧⌘1 does, without a screen to capture.
+// `Parakeet --snap in.png out.png [language]` reads and translates an image
+// as ⇧⌘1 does the screen, and writes it out with every translation laid in.
 if commands.count >= 3, commands[0] == "--snap" {
     guard let source = NSImage(contentsOfFile: commands[1])?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
         print("can't read", commands[1]); exit(2)
     }
     NSApplication.shared.setActivationPolicy(.accessory)
+    setvbuf(stdout, nil, _IOLBF, 0)  // timings show up as they happen, even piped
     let job = SnapJob(image: source, scale: 2, target: Locale.Language(identifier: commands.count > 3 ? commands[3] : "ko"))
-    job.onFail = { print("nothing to translate, or translation failed"); exit(1) }
-    // `.translationTask` only runs in a window.
-    let window = OverlayPanel(frame: CGRect(x: 0, y: 0, width: source.width / 2, height: source.height / 2), job: job)
-    window.orderFrontRegardless()
     let started = Date()
-    job.read()
-    Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
-        guard job.done else { return }
-        try! NSBitmapImageRep(cgImage: job.image).representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: commands[2]))
+    var patches: [Patch] = []
+    job.onFail = { print("nothing to translate, or translation failed"); exit(1) }
+    job.onFound = { print(String(format: "%.2f s  read: %d paragraphs", Date().timeIntervalSince(started), $0.count)) }
+    job.onReady = {
+        patches += $0
+        print(String(format: "%.2f s  %d translated", Date().timeIntervalSince(started), $0.count))
+    }
+    // What the card would tick: macOS asks before downloading each.
+    job.onMissing = { missing in
+        print("offered:", missing.map { "\($0.language.minimalIdentifier)\($0.likely ? "" : " (unticked)") “\($0.sample)”" })
+        // Downloading means macOS asking first; only with PARAKEET_DOWNLOAD set, so a run never stops to wait.
+        job.download(ProcessInfo.processInfo.environment["PARAKEET_DOWNLOAD"] == nil ? [] : missing.filter(\.likely).map(\.language))
+    }
+    job.onFinished = {
+        try! NSBitmapImageRep(cgImage: Painter.compose(patches, over: source)!).representation(using: .png, properties: [:])!
+            .write(to: URL(fileURLWithPath: commands[2]))
         print(String(format: "%.2f s", Date().timeIntervalSince(started)))
         exit(0)
     }
+    let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1, height: 1), styleMask: .borderless, backing: .buffered, defer: false)
+    window.contentView = NSHostingView(rootView: TranslationHost(job: job))
+    window.orderFrontRegardless()
+    job.read()
     NSApplication.shared.run()
 }
 
