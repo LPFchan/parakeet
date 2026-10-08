@@ -50,8 +50,8 @@ final class SnapTranslate: NSObject {
     }
 
     /// Asks for Screen Recording once; after that, a refusal can only be
-    /// undone in System Settings, so it opens there.
-    private static func canCapture() -> Bool {
+    /// undone in System Settings, so it opens there. The welcome window asks this way too.
+    static func canCapture() -> Bool {
         if CGPreflightScreenCaptureAccess() { return true }
         if UserDefaults.standard.bool(forKey: "askedScreenRecording") {
             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)

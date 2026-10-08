@@ -108,6 +108,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let window = OnboardingWindow(onboarding)
         onboarding.onFinish = { [weak self] in self?.finishOnboarding() }
         onboarding.onRetry = { [weak self] in self?.startEngine() }
+        // If macOS quits and reopens Parakeet to apply Screen Recording, it comes back set up.
+        // (Open at Login waits for the page that shows its switch.)
+        onboarding.onScreenRecording = { [rehearse] in if !rehearse { UserDefaults.standard.set(true, forKey: "onboarded") } }
         self.onboarding = onboarding
         onboardingWindow = window
         window.makeKeyAndOrderFront(nil)

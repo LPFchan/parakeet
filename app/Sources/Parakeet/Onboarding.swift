@@ -2,17 +2,20 @@ import AppKit
 import SwiftUI
 
 /// First-launch wizard: what Parakeet does, the audio permission, the model
-/// download, and where to find it afterwards.
+/// download, Screen Recording for ⇧⌘1 (optional), and where to find it afterwards.
 @Observable
 final class Onboarding {
-    enum Step: Int, CaseIterable { case welcome, permission, model, done }
+    enum Step: Int, CaseIterable { case welcome, permission, model, screen, done }
     enum ModelState: Equatable { case waiting, downloading(Double), preparing, ready, failed(String) }
 
     var step = Step.welcome
     var model = ModelState.waiting
     var permission = AudioPermission.status
     var openAtLogin = true
+    var screenAllowed = CGPreflightScreenCaptureAccess()
     @ObservationIgnored var onFinish: () -> Void = {}
+    /// Saves what's been set up so far, before macOS may ask to quit and reopen Parakeet.
+    @ObservationIgnored var onScreenRecording: () -> Void = {}
     @ObservationIgnored var onRetry: () -> Void = {}
 }
 
@@ -47,6 +50,7 @@ private struct OnboardingView: View {
                 case .welcome: WelcomeStep()
                 case .permission: PermissionStep(onboarding: onboarding)
                 case .model: ModelStep(state: onboarding.model)
+                case .screen: ScreenStep(onboarding: onboarding)
                 case .done: DoneStep(openAtLogin: $onboarding.openAtLogin)
                 }
             }
@@ -97,6 +101,21 @@ private struct OnboardingView: View {
             } else {
                 PrimaryButton(onboarding.model == .ready ? "Continue" : "Getting ready…") { next() }
                     .disabled(onboarding.model != .ready)
+            }
+        case .screen:
+            if onboarding.screenAllowed {
+                PrimaryButton("Continue") { next() }
+            } else {
+                PrimaryButton("Allow Screen Recording") {
+                    onboarding.onScreenRecording()
+                    _ = SnapTranslate.canCapture()
+                    next()
+                }
+                Button("Not Now") { next() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 10)
             }
         case .done:
             PrimaryButton("Start Captions") { onboarding.onFinish() }
@@ -269,21 +288,61 @@ private struct DoneStep: View {
             Symbol("checkmark.seal.fill")
             Header(title: "You're all set",
                    subtitle: "Captions appear at the bottom of your screen whenever something speaks. Drag the box anywhere you like.")
-            HStack(spacing: 10) {
-                Image(systemName: "captions.bubble")
-                    .font(.system(size: 15))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(.secondary.opacity(0.15), in: .rect(cornerRadius: 6))
-                Text("Parakeet lives in the menu bar. Click it to turn captions off (⌘L) or copy the transcript.")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
+            // Two tips, kept together: the menu bar, and ⇧⌘1.
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    Image(systemName: "captions.bubble")
+                        .font(.system(size: 15))
+                        .frame(width: 48, height: 26)  // both badges one size, so the tips line up
+                        .background(.secondary.opacity(0.15), in: .rect(cornerRadius: 6))
+                    Text("Parakeet lives in the menu bar. Click it to turn captions off (⌘L) or copy the transcript.")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: 440, alignment: .leading)
+                HStack(spacing: 10) {
+                    Text("⇧⌘1")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(width: 48, height: 26)
+                        .background(.secondary.opacity(0.15), in: .rect(cornerRadius: 6))
+                    Text("Press ⇧⌘1 to translate the text on your screen, right where it is.")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: 440, alignment: .leading)
             }
-            .frame(maxWidth: 440)
             Toggle("Open Parakeet when I log in", isOn: $openAtLogin)
                 .toggleStyle(.switch)
                 .tint(green)
                 .font(.system(size: 14, weight: .medium))
+        }
+    }
+}
+
+/// ⇧⌘1 needs Screen Recording; it's optional, and asked here only after the
+/// model is in, since macOS may ask to quit and reopen Parakeet to apply it.
+private struct ScreenStep: View {
+    let onboarding: Onboarding
+
+    var body: some View {
+        VStack(spacing: 26) {
+            Symbol("text.viewfinder")
+            Header(title: "Translate what's on screen",
+                   subtitle: "Press ⇧⌘1 and Parakeet reads the text on your screen and translates it right where it is, on this Mac. Nothing is recorded or sent anywhere.")
+            Group {
+                if onboarding.screenAllowed {
+                    Label("Screen Recording allowed", systemImage: "checkmark.circle.fill").foregroundStyle(green)
+                } else {
+                    Text("macOS will ask for Screen Recording, and may ask to reopen Parakeet.").foregroundStyle(.secondary)
+                }
+            }
+            .font(.system(size: 14, weight: .medium))
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 420)
+        }
+        // Coming back from System Settings.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            onboarding.screenAllowed = CGPreflightScreenCaptureAccess()
         }
     }
 }
