@@ -36,8 +36,7 @@ final class SnapPanel: NSPanel {
     }
 }
 
-/// A band of light sweeps across the screen, and behind it the screen
-/// springs down into a picture that the GPU takes apart at its rim (see
+/// The screen springs down into a picture that the GPU takes apart at its rim (see
 /// `SnapEffect`). Once it's read, hovering a paragraph inks in its
 /// translation; dragging over an area keeps everything in it translated.
 final class SnapView: NSView {
@@ -46,7 +45,6 @@ final class SnapView: NSView {
     private let job: SnapJob
     private let shrink: CGFloat = 0.86
     private let corner: CGFloat = 22
-    private lazy var bandWidth = bounds.width * 0.3
 
     private let backdrop = CALayer()
     private var shader: ShaderLayer?
@@ -54,10 +52,6 @@ final class SnapView: NSView {
     private let sheet = CALayer()
     private let scan = CAGradientLayer()
     private let lens = CALayer()
-    /// The screen as it was, until the sweep has passed.
-    private let before = CALayer()
-    private let sweep = CAGradientLayer()
-    private let band = CALayer()
 
     private var started: CFTimeInterval = 0
     private var closedAt: CFTimeInterval?
@@ -133,38 +127,6 @@ final class SnapView: NSView {
         lens.opacity = 0
         sheet.addSublayer(lens)
 
-        before.frame = bounds
-        before.contents = job.image
-        before.contentsScale = job.scale
-        sweep.frame = bounds
-        sweep.startPoint = CGPoint(x: 0, y: 0.5)
-        sweep.endPoint = CGPoint(x: 1, y: 0.5)
-        sweep.colors = [NSColor.clear.cgColor, NSColor.black.cgColor]
-        let edgeAt = -bandWidth / 2 / size.width
-        sweep.locations = [NSNumber(value: edgeAt), NSNumber(value: edgeAt + 0.001)]
-        before.mask = sweep
-        root.addSublayer(before)
-
-        // Glimm's band: its colours shift top to bottom, fall away like a bell
-        // side to side, with a brighter core.
-        band.frame = CGRect(x: -bandWidth, y: 0, width: bandWidth, height: size.height)
-        band.compositingFilter = "screenBlendMode"
-        let hues = CAGradientLayer()
-        hues.frame = band.bounds
-        let palette: [UInt32] = [0x3D7BFF, 0x8A5CFF, 0xFF5FA2, 0xFFB259, 0x4FD1FF]
-        hues.colors = palette.map { (hex: UInt32) -> CGColor in
-            let r = CGFloat(hex >> 16 & 0xFF), g = CGFloat(hex >> 8 & 0xFF), b = CGFloat(hex & 0xFF)
-            return CGColor(srgbRed: r / 255, green: g / 255, blue: b / 255, alpha: 1)
-        }
-        hues.mask = Self.bell(band.bounds, tightness: 16, peak: 0.95)
-        band.addSublayer(hues)
-        let core = CALayer()
-        core.frame = band.bounds
-        core.backgroundColor = .white
-        core.mask = Self.bell(band.bounds, tightness: 110, peak: 0.55)
-        band.addSublayer(core)
-        root.addSublayer(band)
-
         let host = NSHostingView(rootView: TranslationHost(job: job))
         host.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
         addSubview(host)
@@ -180,25 +142,6 @@ final class SnapView: NSView {
 
     func play() {
         started = CACurrentMediaTime()
-        let size = bounds.size
-        // Explicit, from and to: the layers were only just made, so there's
-        // nothing yet for an implicit animation to start from.
-        func move(_ layer: CALayer, _ keyPath: String, from: Any, to: Any) {
-            let move = CABasicAnimation(keyPath: keyPath)
-            move.fromValue = from
-            move.toValue = to
-            move.duration = 1.1
-            move.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
-            layer.setValue(to, forKeyPath: keyPath)
-            layer.add(move, forKey: keyPath)
-        }
-        CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in self?.settle() }
-        let start = -bandWidth / 2, end = size.width + bandWidth / 2
-        move(band, "position.x", from: start, to: end)
-        let from = start / size.width, to = end / size.width
-        move(sweep, "locations", from: [from, from + 0.001], to: [to, to + 0.001])
-        CATransaction.commit()
         if shader == nil {
             let spring = CASpringAnimation(keyPath: "transform.scale")
             spring.fromValue = 1
@@ -208,6 +151,7 @@ final class SnapView: NSView {
             spring.duration = spring.settlingDuration
             sheet.add(spring, forKey: "shrink")
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.settle() }
     }
 
     /// Each display frame: where the picture is and how far along it is.
@@ -240,11 +184,9 @@ final class SnapView: NSView {
         if let window { shader.mouse = convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil) }
     }
 
-    /// The sweep has passed: the band fades and the reading begins to show.
+    /// The picture has landed: the reading begins to show.
     private func settle() {
         guard !closing else { return }
-        before.removeFromSuperlayer()
-        fade(band, to: 0, duration: 0.25)
         if patches.isEmpty {
             let run = CABasicAnimation(keyPath: "position.y")
             run.fromValue = -130
@@ -372,9 +314,7 @@ final class SnapView: NSView {
     func finish(then done: @escaping () -> Void) {
         closing = true
         follow?.invalidate()
-        before.removeFromSuperlayer()
         fade(sheet, to: 0, duration: 0.2)
-        fade(band, to: 0, duration: 0.2)
         guard shader != nil else {
             CATransaction.begin()
             CATransaction.setAnimationDuration(0.42)
@@ -418,15 +358,4 @@ final class SnapView: NSView {
         return CIContext().createCGImage(soft, from: small.extent)
     }
 
-    /// A mask that's brightest down the middle and falls away like a bell to each side.
-    private static func bell(_ bounds: CGRect, tightness: Double, peak: Double) -> CAGradientLayer {
-        let mask = CAGradientLayer()
-        mask.frame = bounds
-        mask.startPoint = CGPoint(x: 0, y: 0.5)
-        mask.endPoint = CGPoint(x: 1, y: 0.5)
-        let stops = (0...16).map { Double($0) / 16 }
-        mask.locations = stops.map { NSNumber(value: $0) }
-        mask.colors = stops.map { NSColor.black.withAlphaComponent(peak * exp(-tightness * ($0 - 0.5) * ($0 - 0.5))).cgColor }
-        return mask
-    }
 }
