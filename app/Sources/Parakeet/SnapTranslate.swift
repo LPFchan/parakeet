@@ -34,10 +34,13 @@ final class SnapTranslate: NSObject {
         overlay = nil
         guard selection == nil, Self.canCapture() else { return }
         let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main!
+        // Kept until the capture is in, so a second ⇧⌘1 can't overtake it.
         selection = SelectionPanel(screen: screen) { [weak self] rect in
-            self?.selection = nil
-            guard let rect else { return }
-            Task { @MainActor in await self?.translate(rect, on: screen) }
+            guard let rect else { self?.selection = nil; return }
+            Task { @MainActor in
+                await self?.translate(rect, on: screen)
+                self?.selection = nil
+            }
         }
     }
 
