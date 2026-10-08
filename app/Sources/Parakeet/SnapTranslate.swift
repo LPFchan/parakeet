@@ -103,9 +103,16 @@ final class SnapJob {
             let dominant = Self.language(of: written.map(\.text).joined(separator: "\n"))
             // A short paragraph is easily misread, so only a confident guess
             // overrides the language of the screen as a whole.
+            let japanese = written.contains { $0.text.unicodeScalars.contains { (0x3041...0x30FF).contains($0.value) } }
             let foreign: [Paragraph] = written.compactMap { paragraph in
                 var paragraph = paragraph
                 paragraph.source = Self.language(of: paragraph.text, confidence: 0.8) ?? dominant
+                // Kanji alone (日時：10月12日…) don't say which language they're in,
+                // and the detector leans Traditional Chinese. With Japanese (kana)
+                // elsewhere on the screen, they're Japanese too; Simplified
+                // characters (下载完成后…) are not, so a clear Simplified guess stands.
+                let simplified = paragraph.source?.isSame(as: Locale.Language(identifier: "zh-Hans")) == true
+                if japanese, !simplified, Self.onlyHan(paragraph.text) { paragraph.source = Locale.Language(identifier: "ja") }
                 let native = [Self.language(of: paragraph.text), paragraph.source].contains { $0?.isSame(as: target) == true }
                 return native || paragraph.source == nil ? nil : paragraph
             }
@@ -182,6 +189,12 @@ final class SnapJob {
             let box = VNImageRectForNormalizedRect(observation.boundingBox, Int(size.width), Int(size.height))
             return Line(text: text, box: CGRect(x: box.minX, y: size.height - box.maxY, width: box.width, height: box.height))
         }
+    }
+
+    /// Letters, but every one a Chinese character: no kana, no hangul, no Latin.
+    private static func onlyHan(_ text: String) -> Bool {
+        let letters = text.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+        return !letters.isEmpty && letters.allSatisfy { (0x4E00...0x9FFF).contains($0.value) || (0x3400...0x4DBF).contains($0.value) }
     }
 
     /// How much of the smaller box the two share.
