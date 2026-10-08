@@ -101,7 +101,7 @@ final class SnapJob {
     @ObservationIgnored var onFail: () -> Void = {}
     @ObservationIgnored private let target: Locale.Language
     @ObservationIgnored private var paragraphs: [Paragraph] = []
-    @ObservationIgnored private var sources: [Locale.LanguageCode] = []
+    @ObservationIgnored private var sources: [Locale.Language] = []
 
     init(image: CGImage, scale: CGFloat, target: Locale.Language) {
         self.image = image
@@ -121,23 +121,23 @@ final class SnapJob {
             let foreign: [Paragraph] = written.compactMap { paragraph in
                 var paragraph = paragraph
                 paragraph.source = Self.language(of: paragraph.text, confidence: 0.8) ?? dominant
-                let native = Self.language(of: paragraph.text) == target.languageCode || paragraph.source == target.languageCode
+                let native = [Self.language(of: paragraph.text), paragraph.source].contains { $0?.isSame(as: target) == true }
                 return native || paragraph.source == nil ? nil : paragraph
             }
-            var sources: [Locale.LanguageCode] = []
-            for source in foreign.compactMap(\.source) where !sources.contains(source) { sources.append(source) }
+            var sources: [Locale.Language] = []
+            for source in foreign.compactMap(\.source) where !sources.contains(where: { $0.isSame(as: source) }) { sources.append(source) }
             await MainActor.run {
                 guard !foreign.isEmpty else { return onFail() }
                 self.paragraphs = foreign
                 self.sources = sources
-                configuration = .init(source: Locale.Language(languageCode: sources[0]), target: target)
+                configuration = .init(source: sources[0], target: target)
             }
         }
     }
 
     @MainActor func run(_ session: TranslationSession) async {
         guard let source = sources.first else { return }
-        let requests = paragraphs.indices.filter { paragraphs[$0].source == source }
+        let requests = paragraphs.indices.filter { paragraphs[$0].source?.isSame(as: source) == true }
             .map { TranslationSession.Request(sourceText: paragraphs[$0].text, clientIdentifier: "\($0)") }
         // A language that can't be translated is left as it was.
         let responses = (try? await session.translations(from: requests)) ?? []
@@ -147,7 +147,7 @@ final class SnapJob {
             paragraphs[i].translation = response.targetText
         }
         sources.removeFirst()
-        if let next = sources.first { return configuration = .init(source: Locale.Language(languageCode: next), target: target) }
+        if let next = sources.first { return configuration = .init(source: next, target: target) }
         guard paragraphs.contains(where: { !$0.translation.isEmpty }) else { return onFail() }
         let original = image, translated = paragraphs
         guard let painted = await Task.detached(operation: { Painter.paint(translated, over: original) }).value else { return onFail() }
@@ -169,11 +169,11 @@ final class SnapJob {
         }
     }
 
-    private static func language(of text: String, confidence: Double = 0) -> Locale.LanguageCode? {
+    private static func language(of text: String, confidence: Double = 0) -> Locale.Language? {
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(text)
         guard let (language, sure) = recognizer.languageHypotheses(withMaximum: 1).first, sure >= confidence else { return nil }
-        return Locale.Language(identifier: language.rawValue).languageCode
+        return Locale.Language(identifier: language.rawValue)
     }
 }
 
@@ -187,7 +187,7 @@ struct Line {
 /// wraps across lines.
 struct Paragraph {
     var lines: [Line]
-    var source: Locale.LanguageCode?
+    var source: Locale.Language?
     var translation = ""
 
     var box: CGRect { lines.dropFirst().reduce(lines[0].box) { $0.union($1.box) } }
@@ -381,5 +381,14 @@ private struct OverlayView: View {
             .contentShape(.rect)
             .onTapGesture(perform: close)
             .translationTask(job.configuration) { session in await job.run(session) }
+    }
+}
+
+extension Locale.Language {
+    /// Same language in the same script: Simplified and Traditional Chinese
+    /// differ, British and American English don't.
+    func isSame(as other: Locale.Language) -> Bool {
+        func script(_ language: Locale.Language) -> Locale.Script? { Locale.Language(identifier: language.maximalIdentifier).script }
+        return languageCode == other.languageCode && script(self) == script(other)
     }
 }
