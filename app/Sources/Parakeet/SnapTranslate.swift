@@ -51,8 +51,10 @@ final class SnapTranslate: NSObject {
 
     /// Without Screen Recording, System Settings opens at the list with
     /// PermissionFlow's panel beside it, to drag Parakeet into.
+    /// The running app's own answer never changes, so a grant made since it
+    /// started (without reopening it) is checked with a fresh copy.
     @MainActor static func canCapture() -> Bool {
-        if CGPreflightScreenCaptureAccess() { return true }
+        if CGPreflightScreenCaptureAccess() || ScreenRecording.allowed { return true }
         ScreenRecording.open()
         return false
     }
