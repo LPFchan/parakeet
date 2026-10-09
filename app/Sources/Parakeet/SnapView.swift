@@ -153,8 +153,11 @@ final class SnapView: NSView {
 
         let stripView = NSHostingView(rootView: StripView(strip: strip) { [weak self] size in self?.place(strip: size) })
         stripView.sizingOptions = []
+        stripView.wantsLayer = true
         addSubview(stripView)
         self.stripView = stripView
+        stripView.alphaValue = 0
+        stripView.layer?.setValue(12, forKeyPath: "transform.translation.y")
         strip.onShowAll = { [weak self] on in self?.showAll(on) }
         strip.chipsWidth = max(160, frame.width - 760)  // what the pill, the question and the buttons leave
         strip.onDownload = { [weak self] chosen in self?.job.download(chosen) }
@@ -202,7 +205,20 @@ final class SnapView: NSView {
     func play() {
         spring(picture, "transform.scale", to: shrink, from: 1)
         spring(picture, "cornerRadius", to: corner / shrink, from: 0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self, !closing else { return }
+            stripShown(true)
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.settle() }
+    }
+
+    /// The strip comes and goes with Core Animation, like the rest, so
+    /// SwiftUI doesn't redraw it every frame of the way.
+    private func stripShown(_ shown: Bool) {
+        guard let stripView, let layer = stripView.layer else { return }
+        stripView.alphaValue = shown ? 1 : 0
+        spring(layer, "opacity", to: shown ? 1 : 0)
+        spring(layer, "transform.translation.y", to: shown ? 0 : 12)
     }
 
     private func settle() {
@@ -474,11 +490,11 @@ final class SnapView: NSView {
     /// picture springs back to fill it, exactly where everything was.
     func finish(then done: @escaping () -> Void) {
         closing = true
-        strip.closing = true
         follow?.invalidate()
         CATransaction.begin()
         CATransaction.setCompletionBlock(done)
         spring(lens, "opacity", to: 0)
+        stripShown(false)
         for mark in marks.values where mark.opacity > 0 { spring(mark, "opacity", to: 0) }
         spring(translations, "opacity", to: 0)
         spring(picture, "transform.scale", to: 1)
@@ -609,7 +625,6 @@ final class Strip {
     var chipsWidth: CGFloat = 600
     /// The offered languages ticked for download.
     var chosen: Set<String> = []
-    var closing = false
     @ObservationIgnored var onShowAll: (Bool) -> Void = { _ in }
     @ObservationIgnored var onDownload: ([Locale.Language]) -> Void = { _ in }
 }
@@ -617,7 +632,6 @@ final class Strip {
 private struct StripView: View {
     let strip: Strip
     let resized: (CGSize) -> Void
-    @State private var shown = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -645,12 +659,8 @@ private struct StripView: View {
         }
         .fixedSize()
         .environment(\.colorScheme, .dark)
-        .opacity(shown && !strip.closing ? 1 : 0)
-        .offset(y: shown && !strip.closing ? 0 : 12)
         .animation(.spring(duration: 0.34, bounce: 0), value: strip.missing == nil)  // the same crisp spring as the rest
-        .animation(.spring(duration: 0.34, bounce: 0), value: strip.closing)
         .onGeometryChange(for: CGSize.self, of: \.size) { resized($0) }
-        .onAppear { withAnimation(.spring(duration: 0.34, bounce: 0).delay(0.2)) { shown = true } }
     }
 }
 
