@@ -20,6 +20,8 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks" "$app/Contents/Resources"
 cp "$bin/Parakeet" "$app/Contents/MacOS/Parakeet"
 ditto "$bin/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
+# PermissionFlow's strings, where its lookup finds them.
+ditto "$bin/PermissionFlow_PermissionFlow.bundle" "$app/Contents/Resources/PermissionFlow_PermissionFlow.bundle"
 cp "$root/app/Resources/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
 # License notices for Parakeet and the libraries built into it.
 licenses="$app/Contents/Resources/Licenses"
@@ -29,6 +31,7 @@ cp "$root/LICENSE" "$licenses/Parakeet.txt"
 cp "$checkouts/FluidAudio/LICENSE" "$licenses/FluidAudio.txt"
 cp "$checkouts/FluidAudio/ThirdPartyLicenses/"* "$licenses/"
 cp "$checkouts/Sparkle/LICENSE" "$licenses/Sparkle.txt"
+cp "$checkouts/PermissionFlow/LICENSE" "$licenses/PermissionFlow.txt"
 # Translations: String Catalogs → <lang>.lproj/*.strings. English is the source,
 # but still needs its own folder so macOS counts it as a supported language.
 for catalog in Localizable InfoPlist; do

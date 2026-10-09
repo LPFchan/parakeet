@@ -1,5 +1,5 @@
 {
-  "originHash" : "eb90e9aadb946e669d4bc54f60e2687cea4e3a96f3458988efb7dc345cee71ae",
+  "originHash" : "c2ccc64434885c5f9ffc616e5f228de6f4d4a13ba2a7bcccc86d78e23577d607",
   "pins" : [
     {
       "identity" : "fluidaudio",
@@ -8,6 +8,15 @@
       "state" : {
         "revision" : "21493f8dac5a97e65742e6ff26f42f164c2fda0f",
         "version" : "0.17.4"
+      }
+    },
+    {
+      "identity" : "permissionflow",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jaywcjlove/PermissionFlow",
+      "state" : {
+        "revision" : "2f2a4b76b1eb2ff7ab815b977be8229853f10bf8",
+        "version" : "2.11.2"
       }
     },
     {

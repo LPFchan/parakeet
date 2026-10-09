@@ -8257,178 +8257,6 @@
         }
       }
     },
-    "macOS will ask for Screen Recording, and may ask to reopen Parakeet.": {
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "سيطلب macOS إذن تسجيل الشاشة، وقد يطلب إعادة فتح Parakeet."
-          }
-        },
-        "bg": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS ще поиска разрешение за запис на екрана и може да поиска да отворите Parakeet отново."
-          }
-        },
-        "cs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS požádá o povolení nahrávání obrazovky a může požádat o znovuotevření Parakeetu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS beder om skærmoptagelse og beder måske om at genåbne Parakeet."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS fragt nach der Bildschirmaufnahme und bittet eventuell, Parakeet neu zu öffnen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS pedirá permiso de grabación de pantalla y puede que pida volver a abrir Parakeet."
-          }
-        },
-        "et": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS küsib ekraanisalvestuse luba ja võib paluda Parakeeti uuesti avada."
-          }
-        },
-        "fi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS pyytää näytön tallennuksen lupaa ja voi pyytää avaamaan Parakeetin uudelleen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS demandera l’autorisation d’enregistrer l’écran, et pourra demander de rouvrir Parakeet."
-          }
-        },
-        "hi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS स्क्रीन रिकॉर्डिंग की अनुमति माँगेगा, और Parakeet को फिर से खोलने को कह सकता है।"
-          }
-        },
-        "hr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS će zatražiti snimanje zaslona i možda ponovno otvaranje Parakeeta."
-          }
-        },
-        "hu": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A macOS képernyőfelvételi engedélyt kér, és kérheti a Parakeet újranyitását."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS chiederà la registrazione dello schermo e potrebbe chiedere di riaprire Parakeet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS が画面収録の許可を求め、Parakeet の再起動を求めることがあります。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS가 화면 기록 권한을 요청하고, Parakeet을 다시 열도록 할 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS ber om skjermopptak og kan be om å åpne Parakeet på nytt."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS vraagt om schermopname en vraagt mogelijk om Parakeet opnieuw te openen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS poprosi o nagrywanie ekranu i może poprosić o ponowne otwarcie Parakeet."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O macOS pedirá a gravação de tela e poderá pedir para reabrir o Parakeet."
-          }
-        },
-        "pt-PT": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O macOS pedirá a gravação do ecrã e poderá pedir para reabrir o Parakeet."
-          }
-        },
-        "ro": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS va cere înregistrarea ecranului și poate cere redeschiderea Parakeet."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS запросит запись экрана и может попросить перезапустить Parakeet."
-          }
-        },
-        "sk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS požiada o nahrávanie obrazovky a môže požiadať o opätovné otvorenie Parakeetu."
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS ber om skärminspelning och kan be dig öppna Parakeet igen."
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS Ekran Kaydı izni isteyecek ve Parakeet’i yeniden açmanızı isteyebilir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS попросить дозвіл на запис екрана й може попросити перевідкрити Parakeet."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS sẽ yêu cầu quyền Ghi màn hình và có thể yêu cầu mở lại Parakeet."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS 会请求屏幕录制权限，并可能要求重新打开 Parakeet。"
-          }
-        }
-      }
-    },
     "Allow Screen Recording": {
       "localizations": {
         "ar": {
@@ -8769,6 +8597,178 @@
           "stringUnit": {
             "state": "translated",
             "value": "已允许屏幕录制"
+          }
+        }
+      }
+    },
+    "Drag Parakeet into the list, or turn it on there. If macOS asks to quit and reopen Parakeet, go ahead.": {
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسحب Parakeet إلى القائمة، أو شغّله هناك. إذا طلب macOS إنهاء Parakeet وإعادة فتحه، فوافق."
+          }
+        },
+        "bg": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плъзнете Parakeet в списъка или го включете там. Ако macOS поиска да затворите и отворите отново Parakeet, приемете."
+          }
+        },
+        "cs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Přetáhněte Parakeet do seznamu, nebo ho tam zapněte. Pokud macOS požádá o ukončení a opětovné otevření Parakeetu, potvrďte to."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Træk Parakeet ind på listen, eller slå det til der. Hvis macOS beder om at afslutte og genåbne Parakeet, så gør det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ziehe Parakeet in die Liste oder schalte es dort ein. Wenn macOS darum bittet, Parakeet zu beenden und neu zu öffnen, stimme zu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastra Parakeet a la lista o actívalo ahí. Si macOS pide salir y volver a abrir Parakeet, acéptalo."
+          }
+        },
+        "et": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lohista Parakeet loendisse või lülita see seal sisse. Kui macOS palub Parakeeti sulgeda ja uuesti avada, nõustu."
+          }
+        },
+        "fi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vedä Parakeet luetteloon tai laita se päälle siellä. Jos macOS pyytää sulkemaan ja avaamaan Parakeetin uudelleen, hyväksy."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faites glisser Parakeet dans la liste, ou activez-le là. Si macOS demande de quitter et rouvrir Parakeet, acceptez."
+          }
+        },
+        "hi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parakeet को सूची में खींचें, या वहीं चालू करें। अगर macOS Parakeet को बंद करके फिर से खोलने को कहे, तो हाँ करें।"
+          }
+        },
+        "hr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povucite Parakeet na popis ili ga ondje uključite. Ako macOS zatraži zatvaranje i ponovno otvaranje Parakeeta, prihvatite."
+          }
+        },
+        "hu": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Húzd a Parakeetet a listába, vagy kapcsold be ott. Ha a macOS a Parakeet bezárását és újranyitását kéri, engedd."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascina Parakeet nell’elenco o attivalo lì. Se macOS chiede di chiudere e riaprire Parakeet, accetta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parakeet をリストにドラッグするか、そこでオンにしてください。macOS が Parakeet の終了と再起動を求めたら、そのまま進めてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parakeet을 목록으로 끌어다 놓거나 그곳에서 켜세요. macOS가 Parakeet을 종료하고 다시 열도록 요청하면 그대로 진행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dra Parakeet inn i listen, eller slå det på der. Hvis macOS ber om å avslutte og åpne Parakeet på nytt, godta det."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep Parakeet naar de lijst of zet het daar aan. Als macOS vraagt Parakeet te stoppen en opnieuw te openen, ga akkoord."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przeciągnij Parakeet na listę lub włącz go tam. Jeśli macOS poprosi o zamknięcie i ponowne otwarcie Parakeet, zgódź się."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste o Parakeet para a lista ou ative-o lá. Se o macOS pedir para encerrar e reabrir o Parakeet, aceite."
+          }
+        },
+        "pt-PT": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste o Parakeet para a lista ou ative-o lá. Se o macOS pedir para encerrar e reabrir o Parakeet, aceite."
+          }
+        },
+        "ro": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trage Parakeet în listă sau activează-l acolo. Dacă macOS cere să închizi și să redeschizi Parakeet, acceptă."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетащите Parakeet в список или включите его там. Если macOS попросит закрыть и снова открыть Parakeet, согласитесь."
+          }
+        },
+        "sk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presuňte Parakeet do zoznamu alebo ho tam zapnite. Ak macOS požiada o ukončenie a opätovné otvorenie Parakeetu, potvrďte to."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dra Parakeet till listan, eller slå på det där. Om macOS ber dig avsluta och öppna Parakeet igen, gör det."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parakeet’i listeye sürükleyin veya orada açın. macOS Parakeet’i kapatıp yeniden açmayı isterse kabul edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетягніть Parakeet у список або ввімкніть його там. Якщо macOS попросить закрити й знову відкрити Parakeet, погодьтеся."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kéo Parakeet vào danh sách hoặc bật nó ở đó. Nếu macOS yêu cầu thoát và mở lại Parakeet, hãy đồng ý."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 Parakeet 拖入列表，或在那里将其打开。如果 macOS 要求退出并重新打开 Parakeet，请照做。"
           }
         }
       }
