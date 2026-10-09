@@ -27,7 +27,9 @@ leaves it.
   to keep it translated, or to read an area again where nothing was found.
   Pinch to zoom, two fingers to move around. Esc, ⇧⌘1 again or a click
   beside the picture puts the screen back. Languages not downloaded yet are
-  offered in a bar under the picture. macOS asks once for Screen Recording.
+  offered in a bar under the picture. It needs Screen Recording: the welcome
+  window (or the first ⇧⌘1) opens System Settings at that list, with a panel
+  to drag Parakeet into it.
 - The menu bar icon has a Captions on/off switch (⌘L), Copy Transcript,
   Translate To, Translate Screen (⇧⌘1), Open at Login and Check for Updates. It checks for updates on every launch
   (and daily while running) and offers to install them.
@@ -78,6 +80,8 @@ audio permission and downloads the speech model (~640 MB) from Hugging Face.
   drag and zoom. Every motion is the same crisp spring.
 
 ## Development
+
+Needs Xcode 26 or later (PermissionFlow's package manifest uses Swift tools 6.2).
 
 ```sh
 scripts/build-app.sh          # → build/Parakeet.app
@@ -134,7 +138,8 @@ installs can never update again.
 ## Credits
 
 [FluidAudio](https://github.com/FluidInference/FluidAudio) (Apache-2.0),
-[Sparkle](https://github.com/sparkle-project/Sparkle) (MIT), and NVIDIA's
+[Sparkle](https://github.com/sparkle-project/Sparkle) (MIT),
+[PermissionFlow](https://github.com/jaywcjlove/PermissionFlow) (MIT), and NVIDIA's
 Nemotron 3.5 ASR model ([OpenMDW-1.1](https://openmdw.ai/license/1-1/)),
 downloaded at first launch. Parakeet itself is MIT-licensed. The license
 notices ship inside the app, in `Contents/Resources/Licenses`.

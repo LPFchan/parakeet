@@ -12,7 +12,7 @@ final class Onboarding {
     var model = ModelState.waiting
     var permission = AudioPermission.status
     var openAtLogin = true
-    var screenAllowed = CGPreflightScreenCaptureAccess()
+    var screenAllowed = CGPreflightScreenCaptureAccess()  // kept current by ScreenStep
     @ObservationIgnored var onFinish: () -> Void = {}
     /// Saves what's been set up so far, before macOS may ask to quit and reopen Parakeet.
     @ObservationIgnored var onScreenRecording: () -> Void = {}
@@ -76,6 +76,13 @@ private struct OnboardingView: View {
                 .ignoresSafeArea()
         }
         .animation(.spring(duration: 0.45), value: onboarding.step)
+        // Granting happens in System Settings; move on when it lands.
+        .onChange(of: onboarding.screenAllowed) { _, allowed in
+            guard allowed, onboarding.step == .screen else { return }
+            ScreenRecording.controller.closePanel()
+            NSApp.activate()
+            next()
+        }
     }
 
     @ViewBuilder private var primaryButton: some View {
@@ -108,8 +115,7 @@ private struct OnboardingView: View {
             } else {
                 PrimaryButton("Allow Screen Recording") {
                     onboarding.onScreenRecording()
-                    _ = SnapTranslate.canCapture()
-                    next()
+                    ScreenRecording.open()
                 }
                 Button("Not Now") { next() }
                     .buttonStyle(.plain)
@@ -333,16 +339,20 @@ private struct ScreenStep: View {
                 if onboarding.screenAllowed {
                     Label("Screen Recording allowed", systemImage: "checkmark.circle.fill").foregroundStyle(green)
                 } else {
-                    Text("macOS will ask for Screen Recording, and may ask to reopen Parakeet.").foregroundStyle(.secondary)
+                    Text("Drag Parakeet into the list, or turn it on there. If macOS asks to quit and reopen Parakeet, go ahead.")
+                        .foregroundStyle(.secondary)
                 }
             }
             .font(.system(size: 14, weight: .medium))
             .multilineTextAlignment(.center)
             .frame(maxWidth: 420)
         }
-        // Coming back from System Settings.
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            onboarding.screenAllowed = CGPreflightScreenCaptureAccess()
+        .task {
+            while !Task.isCancelled && !onboarding.screenAllowed {
+                onboarding.screenAllowed = await Task.detached { ScreenRecording.allowed }.value
+                if onboarding.screenAllowed { break }
+                try? await Task.sleep(for: .seconds(0.5))
+            }
         }
     }
 }

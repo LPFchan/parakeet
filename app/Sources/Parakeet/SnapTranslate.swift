@@ -30,7 +30,7 @@ final class SnapTranslate: NSObject {
     }
 
     /// Opens the picture, or closes it when it's already up.
-    @objc func start() {
+    @MainActor @objc func start() {
         if let panel { return panel.dismiss() }
         guard !busy, Self.canCapture() else { return }
         busy = true
@@ -49,16 +49,13 @@ final class SnapTranslate: NSObject {
         }
     }
 
-    /// Asks for Screen Recording once; after that, a refusal can only be
-    /// undone in System Settings, so it opens there. The welcome window asks this way too.
-    static func canCapture() -> Bool {
-        if CGPreflightScreenCaptureAccess() { return true }
-        if UserDefaults.standard.bool(forKey: "askedScreenRecording") {
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
-        } else {
-            UserDefaults.standard.set(true, forKey: "askedScreenRecording")
-            CGRequestScreenCaptureAccess()
-        }
+    /// Without Screen Recording, System Settings opens at the list with
+    /// PermissionFlow's panel beside it, to drag Parakeet into.
+    /// The running app's own answer never changes, so a grant made since it
+    /// started (without reopening it) is checked with a fresh copy.
+    @MainActor static func canCapture() -> Bool {
+        if CGPreflightScreenCaptureAccess() || ScreenRecording.allowed { return true }
+        ScreenRecording.open()
         return false
     }
 

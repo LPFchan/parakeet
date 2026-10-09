@@ -295,6 +295,10 @@ extension AppDelegate: SPUStandardUserDriverDelegate {
     }
 }
 
+// A fresh copy asked by the running app whether Screen Recording is allowed
+// now (see ScreenRecording.allowed): answer, and quit before anything else.
+if CommandLine.arguments.contains(ScreenRecording.checkFlag) { exit(CGPreflightScreenCaptureAccess() ? 0 : 1) }
+
 let args = Array(CommandLine.arguments.dropFirst())
 // Drop a leading "--engine <name>" (read by EngineKind.current) so the
 // commands below only see their own arguments.
