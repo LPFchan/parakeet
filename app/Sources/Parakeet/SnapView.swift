@@ -1,5 +1,6 @@
 import AppKit
 import CoreImage
+import CoreImage.CIFilterBuiltins
 import QuartzCore
 import SwiftUI
 
@@ -80,6 +81,7 @@ final class SnapView: NSView {
     /// over each line of text, then over each paragraph still to come.
     private let pending = CALayer()
     private let pendingShape = CAShapeLayer()
+    private let band = CAGradientLayer()
     private var waitingFor: Set<Int> = []
     /// Areas being read again, harder, after a drag found nothing there.
     private var forcing: [CGRect] = []
@@ -105,21 +107,16 @@ final class SnapView: NSView {
         root.addSublayer(backdrop)
 
         // The glow: the picture's own edges stretched out and blurred, fading into the dark.
+        // It's dark until everything is read, so it's made off the main thread meanwhile.
         glow.frame = pictureFrame.insetBy(dx: -spread, dy: -spread)
-        glow.contents = Self.extended(job.image, size: pictureFrame.size, spread: spread)
         glow.contentsGravity = .resize
-        let fade = CAShapeLayer()
-        fade.frame = glow.bounds
-        fade.path = CGPath(roundedRect: glow.bounds.insetBy(dx: spread, dy: spread),  // the picture's own edge
-                           cornerWidth: corner, cornerHeight: corner, transform: nil)
-        fade.fillColor = .black
-        fade.shadowColor = .black
-        fade.shadowOpacity = 1
-        fade.shadowRadius = spread * 0.42  // fading from the picture's edge, gone before the glow's own
-        fade.shadowOffset = .zero
-        glow.mask = fade
         glow.opacity = 0
         root.addSublayer(glow)
+        let (image, size, spread, corner) = (job.image, pictureFrame.size, spread, corner)
+        Task { [weak self] in
+            let extended = await Task.detached { Self.extended(image, size: size, spread: spread, corner: corner) }.value
+            self?.glow.contents = extended
+        }
 
         picture.bounds = bounds
         picture.position = center
@@ -173,7 +170,7 @@ final class SnapView: NSView {
         job.onDropped = { [weak self] ids in self?.drop(ids) }
         job.onFail = { [weak self] in
             NSSound.beep()  // and it stays unlit
-            if let self { spring(pending, "opacity", to: 0) }
+            self?.shimmer(false)
         }
 
         // The shimmer: a soft band of light running across the placeholders.
@@ -181,19 +178,12 @@ final class SnapView: NSView {
         pending.opacity = 0
         // The placeholders themselves, cut out by the mask; blue shows on light pages and dark alike.
         pending.backgroundColor = CGColor(srgbRed: 0.4, green: 0.65, blue: 1, alpha: 0.16)
-        let band = CAGradientLayer()
         band.frame = bounds
         band.startPoint = CGPoint(x: 0, y: 0.5)
         band.endPoint = CGPoint(x: 1, y: 0.5)
         band.colors = [CGColor(srgbRed: 0.55, green: 0.8, blue: 1, alpha: 0), CGColor(srgbRed: 0.55, green: 0.8, blue: 1, alpha: 0.6),
                        CGColor(srgbRed: 0.55, green: 0.8, blue: 1, alpha: 0)]
         band.locations = [-0.3, -0.15, 0]
-        let sweep = CABasicAnimation(keyPath: "locations")
-        sweep.fromValue = [-0.3, -0.15, 0]
-        sweep.toValue = [1, 1.15, 1.3]
-        sweep.duration = 1.4
-        sweep.repeatCount = .infinity
-        band.add(sweep, forKey: "sweep")
         pending.addSublayer(band)
         pendingShape.frame = bounds
         pending.mask = pendingShape
@@ -225,10 +215,7 @@ final class SnapView: NSView {
             ink.contentsScale = job.scale
             ink.frame = Self.points(patch.box, job.scale)
             ink.opacity = 0
-            let blur = CIFilter(name: "CIGaussianBlur")!
-            blur.name = "blur"
-            blur.setValue(6, forKey: kCIInputRadiusKey)
-            ink.filters = [blur]
+            ink.filters = [Self.blur(6)]
             content.insertSublayer(ink, below: lens)
             inks[patch.id] = ink
             if strip.showAll, !closing { self.ink(patch.id, in: true) }
@@ -247,7 +234,7 @@ final class SnapView: NSView {
     private func sketch(_ lines: [CGRect]) {
         guard !closing, patches.isEmpty, waitingFor.isEmpty else { return }
         reshape(lines.map { Self.points($0, job.scale).insetBy(dx: -2, dy: -1) }, corner: 3)
-        spring(pending, "opacity", to: 1)
+        shimmer(true)
     }
 
     /// Read: the shimmer gathers onto the paragraphs being translated, each outlined faintly.
@@ -279,7 +266,28 @@ final class SnapView: NSView {
         CATransaction.setDisableActions(true)
         pendingShape.path = path
         CATransaction.commit()
-        if rects == nil { spring(pending, "opacity", to: waitingFor.isEmpty && forcing.isEmpty ? 0 : 1) }
+        if rects == nil { shimmer(!waitingFor.isEmpty || !forcing.isEmpty) }
+    }
+
+    /// The band runs only while the shimmer shows: running, even unseen, it
+    /// had the whole screen drawn again every frame.
+    private func shimmer(_ on: Bool) {
+        if on, band.animation(forKey: "sweep") == nil {
+            let sweep = CABasicAnimation(keyPath: "locations")
+            sweep.fromValue = [-0.3, -0.15, 0]
+            sweep.toValue = [1, 1.15, 1.3]
+            sweep.duration = 1.4
+            sweep.repeatCount = .infinity
+            band.add(sweep, forKey: "sweep")
+        }
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            // Faded out, and not shown again since.
+            guard let self, pending.opacity == 0 else { return }
+            band.removeAnimation(forKey: "sweep")
+        }
+        spring(pending, "opacity", to: on ? 1 : 0)
+        CATransaction.commit()
     }
 
     /// Paragraphs that won't be translated: their marks go.
@@ -296,7 +304,7 @@ final class SnapView: NSView {
     /// Everything that can be translated is: the picture lights up.
     private func lightUp() {
         guard !closing, glow.opacity < 1 else { return }
-        spring(pending, "opacity", to: 0)
+        shimmer(false)
         spring(glow, "opacity", to: 1)
         spring(glow, "transform.scale", to: 1, from: 0.97)
     }
@@ -333,12 +341,37 @@ final class SnapView: NSView {
     }
 
     /// Ink: the translation settles in out of a blur, or melts back into one.
+    /// The blur is only there while it moves: on every translation showing,
+    /// it was drawn again each frame anything moved, panning above all.
     private func ink(_ id: Int, in show: Bool) {
         guard let layer = inks[id] else { return }
         if let mark = marks[id] { spring(mark, "opacity", to: show ? 0 : 1) }  // the translation takes its place
+        if layer.filters == nil {  // settled in, sharp
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.filters = [Self.blur(0)]
+            CATransaction.commit()
+        }
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak layer] in
+            // Also called when a newer motion takes over: only once it has settled in.
+            guard let layer, layer.opacity == 1, layer.animation(forKey: "filters.blur.inputRadius") == nil else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.filters = nil
+            CATransaction.commit()
+        }
         spring(layer, "filters.blur.inputRadius", to: show ? 0 : 6)
         spring(layer, "opacity", to: show ? 1 : 0)
         spring(layer, "transform.scale", to: show ? 1 : 1.04)
+        CATransaction.commit()
+    }
+
+    private static func blur(_ radius: CGFloat) -> CIFilter {
+        let blur = CIFilter(name: "CIGaussianBlur")!
+        blur.name = "blur"
+        blur.setValue(radius, forKey: kCIInputRadiusKey)
+        return blur
     }
 
     /// Everything in a dragged area stays translated, top to bottom.
@@ -522,17 +555,26 @@ final class SnapView: NSView {
 
     /// The screen at the picture's size, its edge pixels stretched `spread`
     /// outward on every side, then blurred and made a little richer: a glow
-    /// in the screen's own colours. Worked at a quarter size; it's all blur.
-    private static func extended(_ image: CGImage, size: CGSize, spread: CGFloat) -> CGImage? {
+    /// in the screen's own colours, fading out from the picture's edge. The
+    /// fade is part of the image: as a mask, it was drawn again every frame.
+    /// Worked at a quarter size; it's all blur.
+    nonisolated private static func extended(_ image: CGImage, size: CGSize, spread: CGFloat, corner: CGFloat) -> CGImage? {
         let k: CGFloat = 0.25
         let source = CIImage(cgImage: image)
         let fitted = source.transformed(by: CGAffineTransform(scaleX: size.width * k / source.extent.width,
                                                               y: size.height * k / source.extent.height))
         let pad = spread * k
         let area = CGRect(x: -pad, y: -pad, width: size.width * k + 2 * pad, height: size.height * k + 2 * pad)
+        // Solid under the picture, fading from its edge, gone before the glow's own.
+        let edge = CIFilter.roundedRectangleGenerator()
+        edge.extent = CGRect(x: 0, y: 0, width: size.width * k, height: size.height * k)
+        edge.radius = Float(corner * k)
+        edge.color = .white
+        let fade = edge.outputImage!.composited(over: edge.outputImage!.applyingGaussianBlur(sigma: spread * 0.42 * k))
         let glow = fitted.clampedToExtent()
             .applyingGaussianBlur(sigma: 14)
             .applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 1.9, kCIInputBrightnessKey: 0.1])
+            .applyingFilter("CIBlendWithAlphaMask", parameters: [kCIInputBackgroundImageKey: CIImage.empty(), kCIInputMaskImageKey: fade])
             .cropped(to: area)
         return CIContext().createCGImage(glow, from: area)
     }
