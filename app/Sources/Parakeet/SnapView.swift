@@ -66,6 +66,8 @@ final class SnapView: NSView {
     private var zoom: CGFloat = 1
     private var pan = CGPoint.zero
     private let lens = CALayer()
+    /// Every translation, so closing fades them out as one.
+    private let translations = CALayer()
 
     private var patches: [Patch] = []
     private var inks: [Int: CALayer] = [:]
@@ -140,6 +142,8 @@ final class SnapView: NSView {
         lens.shadowOpacity = 0.9
         lens.shadowOffset = .zero
         lens.opacity = 0
+        translations.frame = bounds
+        content.addSublayer(translations)
         content.addSublayer(lens)
 
         // macOS's own download prompt hangs off this, so it sits in the middle.
@@ -218,7 +222,7 @@ final class SnapView: NSView {
             ink.frame = Self.points(patch.box, job.scale)
             ink.opacity = 0
             ink.filters = [Self.blur(6)]
-            content.insertSublayer(ink, below: lens)
+            translations.addSublayer(ink)
             inks[patch.id] = ink
             if strip.showAll, !closing { self.ink(patch.id, in: true) }
             // Its placeholder stops shimmering and firms up into a mark: hover it.
@@ -475,8 +479,8 @@ final class SnapView: NSView {
         CATransaction.begin()
         CATransaction.setCompletionBlock(done)
         spring(lens, "opacity", to: 0)
-        for mark in marks.values { spring(mark, "opacity", to: 0) }
-        for id in inks.keys where inks[id]!.opacity > 0 { ink(id, in: false) }
+        for mark in marks.values where mark.opacity > 0 { spring(mark, "opacity", to: 0) }
+        spring(translations, "opacity", to: 0)
         spring(picture, "transform.scale", to: 1)
         spring(picture, "cornerRadius", to: 0)
         spring(content, "transform", to: NSValue(caTransform3D: CATransform3DIdentity))  // un-zoomed on the way out
