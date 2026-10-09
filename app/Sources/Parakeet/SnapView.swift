@@ -58,6 +58,7 @@ final class SnapView: NSView {
 
     private let backdrop = CALayer()
     private let glow = CALayer()
+    private var lit = false
     /// The screen itself, holding the marks, the translations and the drag outline.
     private let picture = CALayer()
     /// The screen inside the picture's frame, zoomed and panned by pinch and scroll.
@@ -116,6 +117,7 @@ final class SnapView: NSView {
         Task { [weak self] in
             let extended = await Task.detached { Self.extended(image, size: size, spread: spread, corner: corner) }.value
             self?.glow.contents = extended
+            self?.glowIn()
         }
 
         picture.bounds = bounds
@@ -303,8 +305,15 @@ final class SnapView: NSView {
 
     /// Everything that can be translated is: the picture lights up.
     private func lightUp() {
-        guard !closing, glow.opacity < 1 else { return }
+        guard !closing, !lit else { return }
+        lit = true
         shimmer(false)
+        glowIn()
+    }
+
+    /// Once it's lit and its image is made, whichever comes last.
+    private func glowIn() {
+        guard lit, glow.contents != nil, !closing else { return }
         spring(glow, "opacity", to: 1)
         spring(glow, "transform.scale", to: 1, from: 0.97)
     }
