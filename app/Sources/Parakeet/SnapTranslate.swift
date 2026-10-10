@@ -194,16 +194,13 @@ final class SnapJob {
         let written = found.filter { $0.text.contains(where: \.isLetter) }  // not just numbers
         // A short paragraph is easily misread, so only a confident guess
         // overrides the language of the screen as a whole.
-        let kana = { (text: String) in text.unicodeScalars.contains { (0x3041...0x30FF).contains($0.value) } }
         // Kana in this batch, or a Japanese screen around a forced read of just a label.
-        let japanese = dominant?.languageCode == "ja" || written.contains { kana($0.text) }
+        let japanese = dominant?.languageCode == "ja"
+            || written.contains { $0.text.unicodeScalars.contains { (0x3041...0x30FF).contains($0.value) } }
         let foreign: [Paragraph] = written.compactMap { paragraph in
             var paragraph = paragraph
-            // Kana are only ever Japanese. The detector all but ignores them
-            // beside Latin (AnthropicかOpenAiが… came out Croatian at 15%), and
-            // the screen's language (English, Dutch) was taken instead.
-            paragraph.source = Self.language(of: paragraph.text, confidence: 0.8)
-                ?? (kana(paragraph.text) ? Locale.Language(identifier: "ja") : dominant)
+            paragraph.source = Self.mostlyJapanese(paragraph.text) ? Locale.Language(identifier: "ja")
+                : Self.language(of: paragraph.text, confidence: 0.8) ?? dominant
             // Kanji alone (日時：10月12日…) don't say which language they're in,
             // and the detector leans Traditional Chinese. With Japanese (kana)
             // nearby, they're Japanese too; Simplified characters (下载完成后…)
@@ -461,6 +458,19 @@ final class SnapJob {
     private static func enlarged(_ image: CGImage) -> CGImage {
         let big = CIImage(cgImage: image).applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: 2])
         return CIContext().createCGImage(big, from: big.extent) ?? image
+    }
+
+    /// Kana are only ever Japanese, but beside Latin the detector all but
+    /// ignores them: AnthropicかOpenAiが解決してるだろ comes out Croatian at
+    /// 15%, and misread as "Anthropict'OpenAitì 解決してるだろ", surely Italian.
+    /// Japanese when its characters (two letters' worth each) say at least half
+    /// as much as the Latin; an English sentence quoting ありがとう stays English.
+    private static func mostlyJapanese(_ text: String) -> Bool {
+        let scalars = text.unicodeScalars
+        guard scalars.contains(where: { (0x3041...0x30FF).contains($0.value) }) else { return false }
+        let japanese = scalars.filter { (0x3041...0x30FF).contains($0.value) || (0x4E00...0x9FFF).contains($0.value) }.count
+        let latin = scalars.filter { $0.value < 0x250 && $0.properties.isAlphabetic }.count
+        return japanese * 4 >= latin
     }
 
     /// Letters, but every one a Chinese character: no kana, no hangul, no Latin.
