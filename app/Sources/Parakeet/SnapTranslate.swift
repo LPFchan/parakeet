@@ -170,9 +170,14 @@ final class SnapJob {
         await reading?.value  // what the whole read finds isn't found twice
         // Whatever it may replace is read whole, not just the lines dragged over.
         let held = held
-        let area = paragraphs.indices.filter { !dropped.contains($0) && !held.contains($0) && paragraphs[$0].box.intersects(area) }
-            .reduce(area) { $0.union(paragraphs[$1].box.insetBy(dx: -8, dy: -8)) }
-            .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height)).integral
+        var area = area, taken: Set<Int> = []
+        while let i = paragraphs.indices.first(where: { i in
+            !taken.contains(i) && !dropped.contains(i) && !held.contains(i) && paragraphs[i].box.intersects(area)
+        }) {
+            taken.insert(i)
+            area = area.union(paragraphs[i].box.insetBy(dx: -8, dy: -8))
+        }
+        area = area.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height)).integral
         guard area.width > 4, area.height > 4, let crop = image.cropping(to: area) else { return 0 }
         let known = held.map { paragraphs[$0].box }
         let lines = await Task.detached {
@@ -486,8 +491,9 @@ final class SnapJob {
     /// English or Korean sentence quoting ありがとう stays as it is.
     private static func mostlyJapanese(_ text: String) -> Bool {
         let scalars = text.unicodeScalars
-        guard scalars.contains(where: { (0x3041...0x30FF).contains($0.value) }) else { return false }
-        func japanese(_ c: Unicode.Scalar) -> Bool { (0x3041...0x30FF).contains(c.value) || (0x4E00...0x9FFF).contains(c.value) }
+        func kana(_ c: Unicode.Scalar) -> Bool { (0x3041...0x30FF).contains(c.value) && c.properties.isAlphabetic }  // not ・ or ゠
+        guard scalars.contains(where: kana) else { return false }
+        func japanese(_ c: Unicode.Scalar) -> Bool { kana(c) || (0x4E00...0x9FFF).contains(c.value) }
         let others = scalars.filter { $0.properties.isAlphabetic && !japanese($0) }.reduce(0) { $0 + ($1.value >= 0x2E80 ? 2 : 1) }
         return scalars.filter(japanese).count * 2 * 2 >= others
     }
