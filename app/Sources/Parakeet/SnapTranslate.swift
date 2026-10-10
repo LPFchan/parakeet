@@ -205,8 +205,11 @@ final class SnapJob {
             || written.contains { $0.text.unicodeScalars.contains { (0x3041...0x30FF).contains($0.value) } }
         let foreign: [Paragraph] = written.compactMap { paragraph in
             var paragraph = paragraph
-            paragraph.source = Self.mostlyJapanese(paragraph.text) ? Locale.Language(identifier: "ja")
-                : Self.language(of: paragraph.text, confidence: 0.8) ?? dominant
+            // Beside Latin the detector all but ignores kana; among Chinese or
+            // Korean it doesn't (这是我的の新作品 is Chinese, 99% sure).
+            let guess = Self.language(of: paragraph.text, confidence: 0.8)
+            let asian = ["zh", "ko"].contains(guess?.languageCode?.identifier)
+            paragraph.source = !asian && Self.mostlyJapanese(paragraph.text) ? Locale.Language(identifier: "ja") : guess ?? dominant
             // Kanji alone (日時：10月12日…) don't say which language they're in,
             // and the detector leans Traditional Chinese. With Japanese (kana)
             // nearby, they're Japanese too; Simplified characters (下载完成后…)
