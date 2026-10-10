@@ -5,6 +5,15 @@
     <link>https://parakeet.lost.plus/appcast.xml</link>
     <language>en</language>
     <item>
+      <title>Version 2.0.2</title>
+      <pubDate>Sat, 10 Oct 2026 08:16:09 GMT</pubDate>
+      <sparkle:version>61</sparkle:version>
+      <sparkle:shortVersionString>2.0.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <sparkle:fullReleaseNotesLink>https://github.com/LPFchan/Parakeet/releases/tag/v2.0.2</sparkle:fullReleaseNotesLink>
+      <enclosure url="https://github.com/LPFchan/parakeet/releases/download/v2.0.2/Parakeet.dmg" type="application/octet-stream" sparkle:edSignature="6vFS28Ce9NwuhGlrk36Gaw8erK7DK/HeTeaL03YobI+rprmOLXyxWSwVg7MozRjeUrYw57Mlgxwl6rajNwRWCw==" length="12015034"/>
+    </item>
+    <item>
       <title>Version 2.0.1</title>
       <pubDate>Fri, 09 Oct 2026 17:49:15 GMT</pubDate>
       <sparkle:version>59</sparkle:version>
