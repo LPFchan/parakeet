@@ -151,16 +151,24 @@ final class SnapJob {
         }
     }
 
+    /// Whether a drag over this area (pixels) should read it again: nothing
+    /// found there yet, or something only guessed at or left untranslated.
+    @MainActor func unsettled(_ area: CGRect) -> Bool {
+        let there = paragraphs.indices.filter { !dropped.contains($0) && paragraphs[$0].box.intersects(area) }
+        return there.isEmpty || there.contains { !held.contains($0) }
+    }
+
     /// Reads just this area (pixels) again, harder: twice the size, with the
-    /// dictionary pass. For text the whole-screen read missed; returns how
-    /// many new paragraphs it found to translate.
+    /// dictionary pass. For text the whole-screen read missed or misread
+    /// ("AnthropicかOpenAiが" read whole as "Anthropict OpenAi$*");
+    /// returns how many new paragraphs it found to translate.
     /// On the main actor, like everything that touches the job's state; only the reading runs elsewhere.
     @MainActor func force(_ area: CGRect) async -> Int {
         let image = image
         let area = area.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height)).integral
         guard area.width > 4, area.height > 4, let crop = image.cropping(to: area) else { return 0 }
         await reading?.value  // what the whole read finds isn't found twice
-        let known = paragraphs.indices.filter { !dropped.contains($0) }.map { paragraphs[$0].box }
+        let known = held.map { paragraphs[$0].box }
         let lines = await Task.detached {
             let columns = await Self.columns(in: crop).map { line in
                 var line = line
@@ -186,12 +194,16 @@ final class SnapJob {
         let written = found.filter { $0.text.contains(where: \.isLetter) }  // not just numbers
         // A short paragraph is easily misread, so only a confident guess
         // overrides the language of the screen as a whole.
+        let kana = { (text: String) in text.unicodeScalars.contains { (0x3041...0x30FF).contains($0.value) } }
         // Kana in this batch, or a Japanese screen around a forced read of just a label.
-        let japanese = dominant?.languageCode == "ja"
-            || written.contains { $0.text.unicodeScalars.contains { (0x3041...0x30FF).contains($0.value) } }
+        let japanese = dominant?.languageCode == "ja" || written.contains { kana($0.text) }
         let foreign: [Paragraph] = written.compactMap { paragraph in
             var paragraph = paragraph
-            paragraph.source = Self.language(of: paragraph.text, confidence: 0.8) ?? dominant
+            // Kana are only ever Japanese. The detector all but ignores them
+            // beside Latin (AnthropicかOpenAiが… came out Croatian at 15%), and
+            // the screen's language (English, Dutch) was taken instead.
+            paragraph.source = Self.language(of: paragraph.text, confidence: 0.8)
+                ?? (kana(paragraph.text) ? Locale.Language(identifier: "ja") : dominant)
             // Kanji alone (日時：10月12日…) don't say which language they're in,
             // and the detector leans Traditional Chinese. With Japanese (kana)
             // nearby, they're Japanese too; Simplified characters (下载完成后…)
@@ -218,12 +230,21 @@ final class SnapJob {
         let kept = foreign.filter { paragraph in (ready + absent.map(\.language)).contains { paragraph.source?.isSame(as: $0) == true } }
         let languages = ready, offered = absent
         return await MainActor.run {
-            // Two forced reads of one area at once mustn't add it twice.
-            let live = paragraphs.indices.filter { !dropped.contains($0) }.map { paragraphs[$0].box }
-            let kept = kept.filter { new in !live.contains { Self.overlap($0, new.box) > 0.5 } }
+            // Two forced reads of one area at once mustn't add it twice, nor a
+            // read that comes out the same as before.
+            let live = paragraphs.indices.filter { !dropped.contains($0) }
+            let held = held
+            let kept = kept.filter { new in
+                !live.contains { i in
+                    Self.overlap(paragraphs[i].box, new.box) > 0.5 && (held.contains(i) || paragraphs[i].text == new.text)
+                }
+            }
+            // What it was read as before (misread, or waiting on a download) gives way.
+            let stale = live.filter { i in !held.contains(i) && kept.contains { Self.overlap($0.box, paragraphs[i].box) > 0.3 } }
             let first = paragraphs.count
             paragraphs += kept
             onFound(kept.indices.map { (first + $0, kept[$0].box) })
+            drop(stale)
             for language in offered where !missing.contains(where: { $0.language.isSame(as: language.language) }) {
                 missing.append(language)
             }
@@ -246,9 +267,20 @@ final class SnapJob {
         if sessions.isEmpty { painted ? onFinished() : onFail() }
     }
 
+    /// Paragraphs being translated, or translated from what Vision was sure
+    /// of: a forced read leaves them be. A guess (0.3) may be read better.
+    private var held: [Int] {
+        paragraphs.indices.filter { i in
+            !dropped.contains(i) && claimed.contains(i)
+                && (paragraphs[i].translation.isEmpty || paragraphs[i].lines.allSatisfy { $0.confidence > 0.3 })
+        }
+    }
+
     /// A session for this language's paragraphs that no session has taken on yet.
     private func start(_ source: Locale.Language, downloading: Bool = false) {
-        let mine = paragraphs.indices.filter { !claimed.contains($0) && paragraphs[$0].source?.isSame(as: source) == true }
+        let mine = paragraphs.indices.filter {
+            !claimed.contains($0) && !dropped.contains($0) && paragraphs[$0].source?.isSame(as: source) == true
+        }
         guard !mine.isEmpty else {
             // Nothing left of that language: on to the next download, so the queue never stalls.
             if downloading, !downloads.isEmpty { start(downloads.removeFirst(), downloading: true) }
