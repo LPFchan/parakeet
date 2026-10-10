@@ -478,14 +478,15 @@ final class SnapJob {
     /// Kana are only ever Japanese, but beside Latin the detector all but
     /// ignores them: AnthropicかOpenAiが解決してるだろ comes out Croatian at
     /// 15%, and misread as "Anthropict'OpenAitì 解決してるだろ", surely Italian.
-    /// Japanese when its characters (two letters' worth each) say at least half
-    /// as much as the Latin; an English sentence quoting ありがとう stays English.
+    /// Japanese when its characters say at least half as much as all the
+    /// others (Chinese, Japanese and Korean ones two letters' worth each); an
+    /// English or Korean sentence quoting ありがとう stays as it is.
     private static func mostlyJapanese(_ text: String) -> Bool {
         let scalars = text.unicodeScalars
         guard scalars.contains(where: { (0x3041...0x30FF).contains($0.value) }) else { return false }
-        let japanese = scalars.filter { (0x3041...0x30FF).contains($0.value) || (0x4E00...0x9FFF).contains($0.value) }.count
-        let latin = scalars.filter { $0.value < 0x250 && $0.properties.isAlphabetic }.count
-        return japanese * 4 >= latin
+        func japanese(_ c: Unicode.Scalar) -> Bool { (0x3041...0x30FF).contains(c.value) || (0x4E00...0x9FFF).contains(c.value) }
+        let others = scalars.filter { $0.properties.isAlphabetic && !japanese($0) }.reduce(0) { $0 + ($1.value >= 0x2E80 ? 2 : 1) }
+        return scalars.filter(japanese).count * 2 * 2 >= others
     }
 
     /// Letters, but every one a Chinese character: no kana, no hangul, no Latin.
