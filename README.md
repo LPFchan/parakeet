@@ -69,12 +69,18 @@ audio permission and downloads the speech model (~640 MB) from Hugging Face.
 - `SnapTranslate.swift` is ⇧⌘1's work. It captures the screen with
   ScreenCaptureKit and reads it with Vision on the Neural Engine: whole, then
   in four overlapping quarters in the languages the whole read found (read
-  whole, Vision drops short lines like a sentence-ending "ん。"). Lines group
+  whole, Vision drops short lines like a sentence-ending "ん。"). Vision can't
+  read text written top to bottom (a manga's Japanese), so Live Text reads
+  those columns alongside, and says where each one is through VisionKit's
+  private line list; should that change, Vision reads alone. Lines group
   into paragraphs, split where a line stops short or a bullet starts, so a
-  sentence that wraps is translated whole and a list stays a list. Every
+  sentence that wraps is translated whole and a list stays a list; columns
+  group right to left. Every
   downloaded language translates at once, paragraph by paragraph, nearest the
   pointer first. Each translation is painted over its original in the colour
   around it, in the text's own colour, size, weight and line spacing.
+  Columns are translated into rows, centred in their speech bubble, which
+  they may widen into; columns drawn over the art itself are left alone.
 - `SnapView.swift` is what you see: the picture, its glow (the screen's own
   edges, blurred and stretched outward), the shimmer while it works, hover,
   drag and zoom. Every motion is the same crisp spring.

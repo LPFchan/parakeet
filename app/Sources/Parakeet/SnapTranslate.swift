@@ -5,6 +5,7 @@ import ScreenCaptureKit
 import SwiftUI
 import Translation
 import Vision
+import VisionKit
 
 /// ⇧⌘1: the screen shrinks into a picture, every paragraph on it is read and
 /// translated, and hovering one shows it in the language captions translate
@@ -136,7 +137,7 @@ final class SnapJob {
         reading = Task.detached { [self] in
             let sketch = Self.sketch(image)
             await MainActor.run { onSketch(sketch) }
-            let lines = Self.lines(in: image)
+            let lines = await Self.lines(in: image)
             let paragraphs = Paragraph.group(lines)
             let dominant = Self.language(of: paragraphs.map(\.text).joined(separator: "\n"))
             let painter = Painter(image)
@@ -161,11 +162,16 @@ final class SnapJob {
         await reading?.value  // what the whole read finds isn't found twice
         let known = paragraphs.indices.filter { !dropped.contains($0) }.map { paragraphs[$0].box }
         let lines = await Task.detached {
-            Self.recognize(Self.enlarged(crop), correct: true).map { line in
+            let columns = await Self.columns(in: crop).map { line in
+                var line = line
+                line.box = line.box.offsetBy(dx: area.minX, dy: area.minY)
+                return line
+            }
+            let rows = Self.recognize(Self.enlarged(crop), correct: true).map { line in
                 Line(text: line.text, box: CGRect(x: area.minX + line.box.minX / 2, y: area.minY + line.box.minY / 2,
                                                    width: line.box.width / 2, height: line.box.height / 2), confidence: line.confidence)
             }
-            .filter { line in !known.contains { Self.overlap($0, line.box) > 0.3 } }
+            return Self.merge(rows, columns).filter { line in !known.contains { Self.overlap($0, line.box) > 0.3 } }
         }.value
         self.lines += lines.map(\.box)
         return await take(Paragraph.group(lines))
@@ -323,7 +329,9 @@ final class SnapJob {
     /// screen is then read in four overlapping quarters, all at once, told
     /// which languages the whole read found (left to guess, a quarter took
     /// "ん。" for "ho"), and any line the whole read missed is added.
-    private static func lines(in image: CGImage) -> [Line] {
+    /// Text written top to bottom comes from Live Text instead, alongside.
+    private static func lines(in image: CGImage) async -> [Line] {
+        async let columns = columns(in: image)
         var lines = recognize(image)
         let languages = hints(lines.map(\.text).joined(separator: "\n"))
         let w = image.width / 2, h = image.height / 2, pad = 80
@@ -343,7 +351,45 @@ final class SnapJob {
         for line in found.joined() where !lines.contains(where: { overlap($0.box, line.box) > 0.3 }) {
             lines.append(line)
         }
-        return lines
+        return merge(lines, await columns)
+    }
+
+    /// Vision's rows, less any Live Text read as a column.
+    private static func merge(_ rows: [Line], _ columns: [Line]) -> [Line] {
+        rows.filter { row in !columns.contains { overlap($0.box, row.box) > 0.3 } } + columns
+    }
+
+    /// Lines written top to bottom (a manga's Japanese), which Vision can't
+    /// read but Live Text can. Only Live Text's private lines say where each
+    /// one is; should Apple change them, there are none, and Vision's read stands alone.
+    private static func columns(in image: CGImage) async -> [Line] {
+        func value(_ object: NSObject, _ key: String) -> Any? {
+            object.responds(to: Selector(key)) ? object.value(forKey: key) : nil
+        }
+        guard ImageAnalyzer.isSupported,
+              let analysis = try? await ImageAnalyzer().analyze(image, orientation: .up, configuration: .init([.text])),
+              let inner = Mirror(reflecting: analysis).children.first?.value as? NSObject,
+              let lines = value(inner, "allLines") as? [NSObject] else { return [] }
+        let width = CGFloat(image.width), height = CGFloat(image.height)
+        return lines.compactMap { line in
+            guard let text = value(line, "string") as? String, let quad = value(line, "quad") as? NSObject,
+                  let unit = (value(quad, "boundingBox") as? NSValue)?.rectValue else { return nil }
+            // A fraction of the image, from its top left.
+            let box = CGRect(x: unit.minX * width, y: unit.minY * height, width: unit.width * width, height: unit.height * height)
+            // 5 is top to bottom; a short column (ペロペロ) may be called a row, but its shape says otherwise.
+            guard value(line, "layoutDirection") as? Int == 5 || text.count > 1 && box.height > box.width * 1.5 else { return nil }
+            return Line(text: dashed(text), box: box, vertical: true)
+        }
+    }
+
+    /// A column trailing off in a dash (したが――) is read as 一, ー, -, | or
+    /// even 1, translated as such. After hiragana it can only be the dash;
+    /// after kanji it may be a word (世界一), after katakana a long vowel (ハー).
+    private static func dashed(_ text: String) -> String {
+        let scalars = Array(text.unicodeScalars.suffix(2))
+        guard scalars.count == 2, "一ー-1|｜―‐".unicodeScalars.contains(scalars[1]),
+              (0x3041...0x309F).contains(scalars[0].value) else { return text }
+        return String(text.dropLast()) + "—"
     }
 
     /// The text's main languages (up to three), as Vision names them; empty if it can't tell.
@@ -430,9 +476,11 @@ struct TranslationHost: View {
 
 struct Line {
     let text: String
-    let box: CGRect
+    var box: CGRect
     /// Vision's own: 1 or 0.5 for text it's sure of, 0.3 for its guesses at a scrap.
     var confidence: Float = 1
+    /// Written top to bottom: a column.
+    var vertical = false
 
     /// Words, not just digits and marks: two letters' worth, and a fair share of the line.
     /// A Chinese, Japanese or Korean character counts as two: "ん。" ends a sentence.
@@ -451,7 +499,10 @@ struct Paragraph {
     var translation = ""
 
     var box: CGRect { lines.dropFirst().reduce(lines[0].box) { $0.union($1.box) } }
-    var lineHeight: CGFloat { lines.map(\.box.height).reduce(0, +) / CGFloat(lines.count) }
+    /// Columns, right to left.
+    var vertical: Bool { lines[0].vertical }
+    /// The type's size: a line's height, or a column's width.
+    var lineHeight: CGFloat { lines.map { vertical ? $0.box.width : $0.box.height }.reduce(0, +) / CGFloat(lines.count) }
 
     var text: String {
         lines.dropFirst().reduce(lines[0].text) { text, line in
@@ -462,10 +513,23 @@ struct Paragraph {
     }
 
     static func group(_ lines: [Line]) -> [Paragraph] {
-        var paragraphs: [Paragraph] = []
         // Timestamps, ticks and counters ("02:39 ✓✓" read as "02:39 V/") aren't
         // part of the sentence beside them; they're left as they are.
-        for line in lines.filter(\.isText).sorted(by: { $0.box.minY < $1.box.minY }) {
+        let lines = lines.filter(\.isText)
+        // Columns side by side, right to left, as they're read. A character
+        // or two to the left of one (a lone い, read as a row) may end it.
+        var columns: [Paragraph] = [], rows = lines.filter { !$0.vertical && $0.text.count > 2 }
+        for line in lines.sorted(by: { $0.box.maxX > $1.box.maxX }) where line.vertical || line.text.count <= 2 {
+            let i = columns.lastIndex { paragraph in
+                let last = paragraph.lines.last!.box
+                let gap = last.minX - line.box.maxX
+                return gap < last.width * 0.7 && gap > -last.width * 0.3 && (0.6...1.67).contains(line.box.width / last.width)
+                    && line.box.minY < last.maxY && last.minY < line.box.maxY
+            }
+            if let i { columns[i].lines.append(line) } else if line.vertical { columns.append(Paragraph(lines: [line])) } else { rows.append(line) }
+        }
+        var paragraphs: [Paragraph] = []
+        for line in rows.sorted(by: { $0.box.minY < $1.box.minY }) {
             let i = paragraphs.lastIndex { paragraph in
                 let last = paragraph.lines.last!.box
                 let gap = line.box.minY - last.maxY
@@ -476,7 +540,7 @@ struct Paragraph {
             }
             if let i { paragraphs[i].lines.append(line) } else { paragraphs.append(Paragraph(lines: [line])) }
         }
-        return paragraphs.flatMap(\.items)
+        return columns + paragraphs.flatMap(\.items)
     }
 
     /// A block split where a line stops well short of the others: a list's
@@ -541,11 +605,15 @@ final class Painter {
         let lines = paragraph.lines
         let lineHeight = paragraph.lineHeight
         let pad = (lineHeight * 0.2).rounded()
-        let pitch = lines.count > 1 ? (lines.last!.box.minY - lines[0].box.minY) / CGFloat(lines.count - 1) : lineHeight * 1.3
+        let pitch = lines.count < 2 ? lineHeight * 1.3
+            : paragraph.vertical ? (lines[0].box.maxX - lines.last!.box.maxX) / CGFloat(lines.count - 1)
+            : (lines.last!.box.minY - lines[0].box.minY) / CGFloat(lines.count - 1)
         let whole = CGRect(x: 0, y: 0, width: width, height: height)
         // Halfway into the space between lines: a highlight's edge doesn't peek
         // out between paragraphs, and neighbours meet without overlapping.
-        let covered = paragraph.box.insetBy(dx: -pad, dy: -max(2, (pitch - lineHeight) / 2)).intersection(whole).integral
+        let between = max(2, (pitch - lineHeight) / 2)
+        let covered = paragraph.box.insetBy(dx: paragraph.vertical ? -between : -pad, dy: paragraph.vertical ? -pad : -between)
+            .intersection(whole).integral
         // The background: the most common colour on the box's edge.
         var edge: [SIMD3<Double>] = []
         for x in stride(from: Int(covered.minX), to: Int(covered.maxX), by: 2) { edge += [pixel(x, Int(covered.minY)), pixel(x, Int(covered.maxY) - 1)] }
@@ -580,6 +648,11 @@ final class Painter {
         let kept = runs.sorted().prefix(max(1, runs.count * 9 / 10))
         let stroke = (Double(kept.reduce(0, +)) / Double(max(kept.count, 1)) - 1) / lineHeight
         let weight: NSFont.Weight = stroke > 0.13 ? .bold : stroke > 0.087 ? .semibold : .regular
+        if paragraph.vertical {
+            // Drawn over the picture itself (a cry beside a face), it isn't covered: a box would hide the art.
+            guard edge.filter({ Self.distance($0, background) < 0.12 }).count * 10 >= edge.count * 6 else { return nil }
+            return across(id, paragraph, covered: covered, background: background, ink: ink, weight: weight, around: around)
+        }
 
         // Laid out like the original: same left edge, same first line, same
         // line spacing, the same size type; centred only if the original was.
@@ -626,6 +699,50 @@ final class Painter {
         // two neighbours meet halfway, and holes there would leave a gap both ways.
         let others = around.filter { box.intersects($0) && !covered.intersects($0) }
             .map { $0.insetBy(dx: -1, dy: -1).offsetBy(dx: -box.minX, dy: -box.minY) }
+        guard let image = Self.render(text, in: frame.offsetBy(dx: -box.minX, dy: -box.minY), size: box.size,
+                                      background: Self.color(background), holes: others) else { return nil }
+        return Patch(id: id, box: box, image: image, source: paragraph.box)
+    }
+
+    /// Columns translated into rows, centred where the columns stood. Rows need
+    /// longer lines, so the box widens while the background carries on (a
+    /// speech bubble's white), judged across its middle: a bubble narrows at the ends.
+    private func across(_ id: Int, _ paragraph: Paragraph, covered: CGRect, background: SIMD3<Double>, ink: SIMD3<Double>,
+                        weight: NSFont.Weight, around: [CGRect]) -> Patch? {
+        let size = paragraph.lineHeight, pad = (size * 0.2).rounded()
+        let rows = stride(from: Int(covered.minY + covered.height * 0.15), to: Int(covered.maxY - covered.height * 0.15), by: 4).map { $0 }
+        let reach = covered.height * 0.4
+        var left = covered.minX, right = covered.maxX
+        while left > max(covered.minX - reach, 1), rows.allSatisfy({ Self.distance(pixel(Int(left) - 1, $0), background) < 0.08 }) { left -= 1 }
+        while right < min(covered.maxX + reach, CGFloat(width - 1)), rows.allSatisfy({ Self.distance(pixel(Int(right), $0), background) < 0.08 }) { right += 1 }
+        let column = CGRect(x: left + pad, y: covered.minY + pad, width: max(right - left - pad * 2, size), height: covered.height - pad * 2)
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byWordWrapping
+        style.lineBreakStrategy = .hangulWordPriority
+        style.alignment = .center
+        // Spaced words mustn't break mid-word; Chinese and Japanese break anywhere.
+        let words = paragraph.translation.split(whereSeparator: \.isWhitespace)
+            .filter { !$0.unicodeScalars.contains { (0x3040...0x30FF).contains($0.value) || (0x4E00...0x9FFF).contains($0.value) } }
+        var points = size * 0.87, text = NSAttributedString(), used = CGRect.zero, fits = false
+        repeat {
+            let font = NSFont.systemFont(ofSize: points, weight: weight)
+            text = NSAttributedString(string: paragraph.translation, attributes: [.font: font, .foregroundColor: Self.color(ink), .paragraphStyle: style])
+            used = text.boundingRect(with: CGSize(width: column.width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin])
+            let widest = words.map { NSAttributedString(string: String($0), attributes: [.font: font]).size().width }.max() ?? 0
+            fits = used.height <= column.height && widest <= column.width
+            points *= 0.94
+        } while !fits && points > size * 0.4
+        let frame = CGRect(x: column.minX, y: column.midY - ceil(used.height) / 2, width: column.width, height: ceil(used.height))
+        // Widened only as far down as the rows reach, short of a bubble's narrowing ends:
+        // the corners beside the columns, above and below the rows, show through.
+        let band = frame.insetBy(dx: -pad, dy: -pad)
+        let box = covered.union(band).intersection(CGRect(x: 0, y: 0, width: width, height: height)).integral
+        let corners = [(box.minX, covered.minX), (covered.maxX, box.maxX)].flatMap { x in
+            [(box.minY, band.minY), (band.maxY, box.maxY)].map { y in CGRect(x: x.0, y: y.0, width: x.1 - x.0, height: y.1 - y.0) }
+        }
+        let others = (around.filter { box.intersects($0) && !covered.intersects($0) }.map { $0.insetBy(dx: -1, dy: -1) } + corners)
+            .filter { $0.width > 0 && $0.height > 0 }
+            .map { $0.offsetBy(dx: -box.minX, dy: -box.minY) }
         guard let image = Self.render(text, in: frame.offsetBy(dx: -box.minX, dy: -box.minY), size: box.size,
                                       background: Self.color(background), holes: others) else { return nil }
         return Patch(id: id, box: box, image: image, source: paragraph.box)
