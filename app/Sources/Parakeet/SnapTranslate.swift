@@ -167,9 +167,13 @@ final class SnapJob {
     /// On the main actor, like everything that touches the job's state; only the reading runs elsewhere.
     @MainActor func force(_ area: CGRect) async -> Int {
         let image = image
-        let area = area.intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height)).integral
-        guard area.width > 4, area.height > 4, let crop = image.cropping(to: area) else { return 0 }
         await reading?.value  // what the whole read finds isn't found twice
+        // Whatever it may replace is read whole, not just the lines dragged over.
+        let held = held
+        let area = paragraphs.indices.filter { !dropped.contains($0) && !held.contains($0) && paragraphs[$0].box.intersects(area) }
+            .reduce(area) { $0.union(paragraphs[$1].box.insetBy(dx: -8, dy: -8)) }
+            .intersection(CGRect(x: 0, y: 0, width: image.width, height: image.height)).integral
+        guard area.width > 4, area.height > 4, let crop = image.cropping(to: area) else { return 0 }
         let known = held.map { paragraphs[$0].box }
         let lines = await Task.detached {
             let columns = await Self.columns(in: crop).map { line in
