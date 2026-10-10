@@ -276,6 +276,8 @@ final class SnapJob {
                 if let patch = await Task.detached(operation: { painter?.patch(i, paragraph, around: others) }).value {
                     painted = true
                     onReady([patch])
+                } else {
+                    drop([i])  // not paintable (a column over the art): no mark left that never shows anything
                 }
             }
         } catch {
