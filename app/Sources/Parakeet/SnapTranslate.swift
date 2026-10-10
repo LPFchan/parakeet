@@ -97,6 +97,8 @@ final class SnapJob {
     @ObservationIgnored var onFinished: () -> Void = {}
     /// Paragraphs that won't be translated after all (their download declined or failed).
     @ObservationIgnored var onDropped: ([Int]) -> Void = { _ in }
+    /// Languages offered for download that nothing needs any more: what needed them was read again.
+    @ObservationIgnored var onWithdrawn: ([Locale.Language]) -> Void = { _ in }
     /// Paragraphs nearest this point (pixels) are translated first.
     @ObservationIgnored var focus: CGPoint?
     @ObservationIgnored private let target: Locale.Language
@@ -236,12 +238,21 @@ final class SnapJob {
                     Self.overlap(paragraphs[i].box, new.box) > 0.5 && (held.contains(i) || paragraphs[i].text == new.text)
                 }
             }
-            // What it was read as before (misread, or waiting on a download) gives way.
-            let stale = live.filter { i in !held.contains(i) && kept.contains { Self.overlap($0.box, paragraphs[i].box) > 0.3 } }
+            // What it was read as before (misread, or waiting on a download)
+            // gives way, even to text now found to need no translating.
+            let stale = live.filter { i in
+                !held.contains(i) && written.contains { Self.overlap($0.box, paragraphs[i].box) > 0.3 && $0.text != paragraphs[i].text }
+            }
             let first = paragraphs.count
             paragraphs += kept
             onFound(kept.indices.map { (first + $0, kept[$0].box) })
             drop(stale)
+            // A download offered only for what gave way is taken back.
+            let gone = stale.compactMap { paragraphs[$0].source }.filter { language in
+                !paragraphs.indices.contains { !dropped.contains($0) && paragraphs[$0].source?.isSame(as: language) == true }
+            }
+            missing.removeAll { offer in gone.contains { $0.isSame(as: offer.language) } }
+            if !gone.isEmpty { onWithdrawn(gone) }
             for language in offered where !missing.contains(where: { $0.language.isSame(as: language.language) }) {
                 missing.append(language)
             }

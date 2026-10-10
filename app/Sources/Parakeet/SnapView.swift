@@ -177,6 +177,11 @@ final class SnapView: NSView {
         }
         job.onFinished = { [weak self] in self?.lightUp() }
         job.onDropped = { [weak self] ids in self?.drop(ids) }
+        job.onWithdrawn = { [weak self] gone in
+            guard let self, let showing = strip.missing else { return }
+            let left = showing.filter { offer in !gone.contains { $0.isSame(as: offer.language) } }
+            withAnimation(.spring(duration: 0.34, bounce: 0)) { self.strip.missing = left.isEmpty ? nil : left }
+        }
         job.onFail = { [weak self] in
             NSSound.beep()  // and it stays unlit
             self?.shimmer(false)
