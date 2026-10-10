@@ -180,6 +180,7 @@ final class SnapView: NSView {
         job.onWithdrawn = { [weak self] gone in
             guard let self, let showing = strip.missing else { return }
             let left = showing.filter { offer in !gone.contains { $0.isSame(as: offer.language) } }
+            strip.chosen.subtract(showing.filter { !left.map(\.id).contains($0.id) }.map(\.id))  // nor ticked, unseen
             withAnimation(.spring(duration: 0.34, bounce: 0)) { self.strip.missing = left.isEmpty ? nil : left }
         }
         job.onFail = { [weak self] in
