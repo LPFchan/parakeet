@@ -177,6 +177,12 @@ final class SnapView: NSView {
         }
         job.onFinished = { [weak self] in self?.lightUp() }
         job.onDropped = { [weak self] ids in self?.drop(ids) }
+        job.onWithdrawn = { [weak self] gone in
+            guard let self, let showing = strip.missing else { return }
+            let left = showing.filter { offer in !gone.contains { $0.isSame(as: offer.language) } }
+            strip.chosen.subtract(showing.filter { !left.map(\.id).contains($0.id) }.map(\.id))  // nor ticked, unseen
+            withAnimation(.spring(duration: 0.34, bounce: 0)) { self.strip.missing = left.isEmpty ? nil : left }
+        }
         job.onFail = { [weak self] in
             NSSound.beep()  // and it stays unlit
             self?.shimmer(false)
@@ -312,10 +318,18 @@ final class SnapView: NSView {
         CATransaction.commit()
     }
 
-    /// Paragraphs that won't be translated: their marks go.
+    /// Paragraphs that won't be translated, or were read again: their marks
+    /// go, and any translation of what was misread with them.
     private func drop(_ ids: [Int]) {
         for id in ids {
             waitingFor.remove(id)
+            pinned.remove(id)
+            if hovered == id { hovered = nil }
+            patches.removeAll { $0.id == id }
+            if let ink = inks.removeValue(forKey: id) {
+                spring(ink, "opacity", to: 0)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { ink.removeFromSuperlayer() }
+            }
             guard let mark = marks.removeValue(forKey: id) else { continue }
             spring(mark, "opacity", to: 0)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { mark.removeFromSuperlayer() }
@@ -405,7 +419,7 @@ final class SnapView: NSView {
 
     /// Everything in a dragged area stays translated, top to bottom.
     private func pin(in area: CGRect) {
-        let pixels = CGRect(x: area.minX * job.scale, y: area.minY * job.scale, width: area.width * job.scale, height: area.height * job.scale)
+        let pixels = Self.pixels(area, job.scale)
         let caught = patches.filter { $0.source.intersects(pixels) }.sorted { $0.source.minY < $1.source.minY }
         for (i, patch) in caught.enumerated() where !pinned.contains(patch.id) {
             pinned.insert(patch.id)
@@ -418,16 +432,17 @@ final class SnapView: NSView {
     }
 
     /// The area shimmers while it's read again; what's found joins the rest and
-    /// stays translated. Nothing found: the area shakes its head.
-    private func force(_ area: CGRect) {
+    /// stays translated. Nothing found: the area shakes its head, unless
+    /// `quiet` (something there is still on its way).
+    private func force(_ area: CGRect, quiet: Bool = false) {
         forcing.append(area)
         reshape()
-        let pixels = CGRect(x: area.minX * job.scale, y: area.minY * job.scale, width: area.width * job.scale, height: area.height * job.scale)
+        let pixels = Self.pixels(area, job.scale)
         Task { @MainActor in
             let found = await job.force(pixels)
             forcing.removeAll { $0 == area }
             reshape()
-            guard found == 0, !closing else { return }
+            guard found == 0, !closing, !quiet else { return }
             NSSound.beep()
             let lens = CALayer()
             lens.frame = area
@@ -475,9 +490,11 @@ final class SnapView: NSView {
             if let old = hovered, !pinned.contains(old), !strip.showAll { ink(old, in: false) }
             hovered = nil
             dragged.append(area)
-            // Nothing known to translate there: read just that area again, harder.
-            let known = marks.values.contains { $0.frame.intersects(area) }
-            return known ? pin(in: area) : force(area)
+            // What's translated there stays so; anything only guessed at, left
+            // untranslated or not found at all is read again, harder.
+            pin(in: area)
+            if job.unsettled(Self.pixels(area, job.scale)) { force(area, quiet: marks.values.contains { $0.frame.intersects(area) }) }
+            return
         }
         guard pictureFrame.contains(point) else { return onDismiss() }
         // A click keeps the paragraph under the pointer translated, or lets it go.
@@ -580,6 +597,10 @@ final class SnapView: NSView {
 
     private static func points(_ box: CGRect, _ scale: CGFloat) -> CGRect {
         CGRect(x: box.minX / scale, y: box.minY / scale, width: box.width / scale, height: box.height / scale)
+    }
+
+    private static func pixels(_ area: CGRect, _ scale: CGFloat) -> CGRect {
+        CGRect(x: area.minX * scale, y: area.minY * scale, width: area.width * scale, height: area.height * scale)
     }
 
     /// The screen at the picture's size, its edge pixels stretched `spread`
