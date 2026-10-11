@@ -167,8 +167,12 @@ final class SnapView: NSView {
         job.onReady = { [weak self] patches in self?.read(patches) }
         job.onMissing = { [weak self] missing in
             self?.lightUp()  // what's downloaded is done
-            // Added to an offer still showing, not in place of it: its languages have nowhere else to wait.
             guard let self, !closing else { return }
+            // Nothing is being translated now: what's left waits on a download,
+            // and shimmers again only once one starts.
+            waitingFor.removeAll()
+            reshape()
+            // Added to an offer still showing, not in place of it: its languages have nowhere else to wait.
             let showing = strip.missing ?? []
             let added = missing.filter { new in !showing.contains { $0.id == new.id } }
             // Ticks already changed stay as they are; a new language starts ticked if it's likely.

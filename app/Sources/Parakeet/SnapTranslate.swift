@@ -85,7 +85,7 @@ final class SnapJob {
     @ObservationIgnored let scale: CGFloat
     /// Where the text is, before it's read (pixels): lines, found almost at once.
     @ObservationIgnored var onSketch: ([CGRect]) -> Void = { _ in }
-    /// Paragraphs to be translated, by id and box (pixels): the screen's, then any a forced read finds.
+    /// Paragraphs to be translated, by id and box (pixels): the screen's, then any a forced read finds, and again a language's once its download starts.
     @ObservationIgnored var onFound: ([(id: Int, box: CGRect)]) -> Void = { _ in }
     /// Translations as they come in, paragraph by paragraph.
     @ObservationIgnored var onReady: ([Patch]) -> Void = { _ in }
@@ -282,6 +282,10 @@ final class SnapJob {
                 && !languages.contains { paragraphs[i].source?.isSame(as: $0) == true }
         })
         guard !languages.isEmpty else { return sessions.isEmpty ? (painted ? onFinished() : onFail()) : () }
+        // Its paragraphs are on their way again.
+        onFound(paragraphs.indices.filter { i in
+            !claimed.contains(i) && !dropped.contains(i) && paragraphs[i].translation.isEmpty
+        }.map { ($0, paragraphs[$0].box) })
         downloads += languages.dropFirst()
         start(languages[0], downloading: true)
         if sessions.isEmpty { painted ? onFinished() : onFail() }
