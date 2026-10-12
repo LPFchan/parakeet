@@ -94,6 +94,25 @@
   /* The ⇧⌘1 demo: a recording of the real app, with the keys it pressed
      shown underneath as they go down (demo.js keeps them on the video's clock). */
   .demo { margin: 0; }
+  .player { position: relative; }
+  .playback {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    color: #fff;
+    background: rgb(0 0 0 / 45%);
+    cursor: pointer;
+  }
+  .playback svg { width: 14px; height: 14px; fill: currentColor; }
+  .playback .play, .paused .playback .bars { display: none; }
+  .paused .playback .play { display: block; }
   .keys { position: relative; height: 76px; }
   .key-group {
     position: absolute;
@@ -180,9 +199,15 @@
   </section>
 
   <figure class="demo">
-    <video class="shot" src="demo.mp4" poster="demo.jpg" width="1920" height="1080"
-           autoplay muted loop playsinline
-           aria-label="Parakeet captioning a video of Osaka in QuickTime Player and translating it into Korean. ⇧⌘1 shrinks the screen into a picture; pinching zooms in on a Japanese sign, dragging over it translates it into Korean, and Esc puts the screen back."></video>
+    <div class="player">
+      <video class="shot" src="demo.mp4" poster="demo.jpg" width="1920" height="1080"
+             autoplay muted loop playsinline
+             aria-label="Parakeet captioning a video of Osaka in QuickTime Player and translating it into Korean. ⇧⌘1 shrinks the screen into a picture; pinching zooms in on a Japanese sign, dragging over it translates it into Korean, and Esc puts the screen back."></video>
+      <button class="playback" type="button" aria-label="Pause the demo">
+        <svg class="bars" viewBox="0 0 14 14"><rect x="2.5" y="1.5" width="3" height="11" rx="1"/><rect x="8.5" y="1.5" width="3" height="11" rx="1"/></svg>
+        <svg class="play" viewBox="0 0 14 14"><path d="M3.5 1.8v10.4a.8.8 0 0 0 1.2.7l8.4-5.2a.8.8 0 0 0 0-1.4L4.7 1.1a.8.8 0 0 0-1.2.7z"/></svg>
+      </button>
+    </div>
     <div class="keys" aria-hidden="true">
       <div class="key-group"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>1</kbd><span>Translate the screen</span></div>
       <div class="key-group">

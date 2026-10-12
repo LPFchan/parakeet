@@ -6,6 +6,22 @@
   const groups = [...document.querySelectorAll(".demo .key-group")];
   if (!video || !groups.length) return;
 
+  // It plays on its own and loops, so it can be paused; with reduced motion
+  // asked for, it waits to be played.
+  const player = video.closest(".player"), button = player.querySelector(".playback");
+  const show = () => {
+    player.classList.toggle("paused", video.paused);
+    button.setAttribute("aria-label", video.paused ? "Play the demo" : "Pause the demo");
+  };
+  video.addEventListener("play", show);
+  video.addEventListener("pause", show);
+  button.addEventListener("click", () => (video.paused ? video.play() : video.pause()));
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    video.autoplay = false;
+    video.pause();
+  }
+  show();
+
   // When each one shows, is pressed (or moves), and goes, in the video's seconds.
   const KEYS = [
     { at: 3.3, press: 3.9, end: 4.7 },            // ⇧⌘1
