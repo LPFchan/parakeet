@@ -160,6 +160,9 @@ final class SnapJob {
         return there.isEmpty || there.contains { !held.contains($0) }
     }
 
+    /// Whether this paragraph's translation stands: a forced read leaves it be.
+    @MainActor func settled(_ id: Int) -> Bool { held.contains(id) }
+
     /// Reads just this area (pixels) again, harder: twice the size, with the
     /// dictionary pass. For text the whole-screen read missed or misread
     /// ("AnthropicかOpenAiが" read whole as "Anthropict OpenAi$*");

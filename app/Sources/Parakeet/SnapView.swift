@@ -436,10 +436,10 @@ final class SnapView: NSView {
         return blur
     }
 
-    /// Everything in a dragged area stays translated, top to bottom.
-    private func pin(in area: CGRect) {
+    /// Everything in a dragged area stays translated, top to bottom (or just what `only` lets through).
+    private func pin(in area: CGRect, only: (Int) -> Bool = { _ in true }) {
         let pixels = Self.pixels(area, job.scale)
-        let caught = patches.filter { $0.source.intersects(pixels) }.sorted { $0.source.minY < $1.source.minY }
+        let caught = patches.filter { $0.source.intersects(pixels) && only($0.id) }.sorted { $0.source.minY < $1.source.minY }
         for (i, patch) in caught.enumerated() where !pinned.contains(patch.id) {
             pinned.insert(patch.id)
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.05) { [weak self] in
@@ -453,7 +453,7 @@ final class SnapView: NSView {
     /// The area shimmers while it's read again; what's found joins the rest and
     /// stays translated. Nothing found: the area shakes its head, unless
     /// `quiet` (something there is still on its way).
-    private func force(_ area: CGRect, quiet: Bool = false) {
+    private func force(_ area: CGRect, quiet: Bool = false, then read: @escaping () -> Void = {}) {
         forcing.append(area)
         reshape()
         let pixels = Self.pixels(area, job.scale)
@@ -461,6 +461,7 @@ final class SnapView: NSView {
             let found = await job.force(pixels)
             forcing.removeAll { $0 == area }
             reshape()
+            read()
             guard found == 0, !closing, !quiet else { return }
             NSSound.beep()
             let lens = CALayer()
@@ -508,11 +509,20 @@ final class SnapView: NSView {
             // What was hovered when the drag began goes back, unless it's kept.
             if let old = hovered, !pinned.contains(old), !strip.showAll { ink(old, in: false) }
             hovered = nil
-            dragged.append(area)
             // What's translated there stays so; anything only guessed at, left
-            // untranslated or not found at all is read again, harder.
-            pin(in: area)
-            if job.unsettled(Self.pixels(area, job.scale)) { force(area, quiet: marks.values.contains { $0.frame.intersects(area) }) }
+            // untranslated or not found at all is read again, harder. A guess
+            // shimmers meanwhile instead of showing, then gives way to the better
+            // read, or shows after all if the read comes out the same.
+            guard job.unsettled(Self.pixels(area, job.scale)) else {
+                dragged.append(area)
+                return pin(in: area)
+            }
+            pin(in: area) { [job] in job.settled($0) }
+            force(area, quiet: marks.values.contains { $0.frame.intersects(area) }) { [weak self] in
+                guard let self, !closing else { return }
+                dragged.append(area)
+                pin(in: area)
+            }
             return
         }
         guard pictureFrame.contains(point) else { return onDismiss() }
