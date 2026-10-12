@@ -467,7 +467,7 @@ final class SnapView: NSView {
         let pixels = Self.pixels(area, job.scale)
         Task { @MainActor in
             let found = await job.force(pixels)
-            forcing.removeAll { $0 == area }
+            if let i = forcing.firstIndex(of: area) { forcing.remove(at: i) }  // just this read: another may be of the same area
             reshape()
             read()
             guard found == 0, !closing, !quiet else { return }
