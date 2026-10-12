@@ -376,7 +376,7 @@ final class SnapView: NSView {
     private func showAll(_ on: Bool) {
         guard !closing else { return }
         let order = patches.sorted { $0.box.minY < $1.box.minY }.map(\.id)
-        for (i, id) in order.enumerated() where !pinned.contains(id) && id != hovered {
+        for (i, id) in order.enumerated() where !pinned.contains(id) && id != hovered && !rereading(id) {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.015) { [weak self] in
                 // Hovered or pinned meanwhile: it stays.
                 guard let self, !closing, strip.showAll == on, on || (!pinned.contains(id) && id != hovered) else { return }
@@ -529,6 +529,11 @@ final class SnapView: NSView {
                 guard let self, !closing else { return }
                 dragged.append(area)
                 pin(in: area)
+            }
+            // A guess already showing there (pinned, or all shown) goes under the shimmer too.
+            for id in patches.map(\.id) where rereading(id) {
+                pinned.remove(id)
+                ink(id, in: false)
             }
             return pin(in: area)
         }
