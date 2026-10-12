@@ -91,6 +91,38 @@
   .meta { margin: 14px 0 0; color: var(--text-muted); font-size: 14px; }
 
   .shot { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--hair); }
+  /* The ⇧⌘1 demo: a recording of the real app, with the keys it pressed
+     shown underneath as they go down (demo.js keeps them on the video's clock). */
+  .demo { margin: 0; }
+  .keys { position: relative; height: 76px; }
+  .key-group {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    opacity: 0;
+  }
+  .key-group span { margin-left: 6px; color: var(--text-muted); font-size: 15px; font-weight: 500; }
+  .key-group kbd {
+    box-sizing: border-box;
+    min-width: 34px;
+    height: 34px;
+    padding: 0 10px;
+    border: 2px solid #fff;
+    border-radius: 8px;
+    color: color-mix(in srgb, var(--bg) calc(var(--pressed, 0) * 100%), #fff);
+    background: rgb(255 255 255 / calc(var(--pressed, 0) * 100%));
+    font: 500 17px/30px -apple-system, BlinkMacSystemFont, sans-serif;
+    text-align: center;
+    transform: scale(calc(1 - 0.08 * var(--pressed, 0)));
+  }
+  .key-group svg { width: 40px; height: 34px; fill: none; stroke: #fff; stroke-width: 2; }
+  .key-group .grow { transform-box: fill-box; transform: scale(calc(0.3 + 0.7 * var(--progress, 0))); }
+  .key-group .finger { fill: #fff; stroke: none; }
+  .key-group .finger.a { transform: translate(calc(var(--progress, 0) * -5px), calc(var(--progress, 0) * 3.5px)); }
+  .key-group .finger.b { transform: translate(calc(var(--progress, 0) * 5px), calc(var(--progress, 0) * -3.5px)); }
 
   h2 { margin: 64px 0 8px; font-size: 22px; font-weight: 650; letter-spacing: -0.01em; }
   .features {
@@ -147,8 +179,23 @@
     <p class="meta">Free and open source · Apple silicon, macOS 15 or later</p>
   </section>
 
-  <img class="shot" src="screenshot.jpg" width="2940" height="1912"
-       alt="Parakeet captioning a video in QuickTime Player and translating it into Korean">
+  <figure class="demo">
+    <video class="shot" src="demo.mp4" poster="demo.jpg" width="1920" height="1080"
+           autoplay muted loop playsinline
+           aria-label="Parakeet captioning a video of Osaka in QuickTime Player and translating it into Korean. ⇧⌘1 shrinks the screen into a picture; pinching zooms in on a Japanese sign, dragging over it translates it into Korean, and Esc puts the screen back."></video>
+    <div class="keys" aria-hidden="true">
+      <div class="key-group"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>1</kbd><span>Translate the screen</span></div>
+      <div class="key-group">
+        <svg viewBox="0 0 40 34"><rect x="2" y="4" width="36" height="26" rx="6"/><circle class="finger a" cx="17" cy="19" r="3.4"/><circle class="finger b" cx="23" cy="15" r="3.4"/></svg>
+        <span>Pinch to zoom in</span>
+      </div>
+      <div class="key-group">
+        <svg viewBox="0 0 40 34"><rect class="grow" x="3" y="5" width="34" height="24" rx="4" stroke-dasharray="4 3"/></svg>
+        <span>Drag to keep it translated</span>
+      </div>
+      <div class="key-group"><kbd>esc</kbd><span>Back to the screen</span></div>
+    </div>
+  </figure>
 
   <h2>What it does</h2>
   <ul class="features">
@@ -190,7 +237,8 @@
   <a href="https://github.com/LPFchan/parakeet">GitHub</a>
   <a href="https://github.com/LPFchan/parakeet/releases">Releases</a>
   <a href="https://github.com/LPFchan/parakeet/blob/main/LICENSE">MIT License</a>
-  <p class="credits">Speech recognition by NVIDIA's <a href="https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b">Nemotron 3.5 ASR</a> via <a href="https://github.com/FluidInference/FluidAudio">FluidAudio</a>. Updates by <a href="https://sparkle-project.org">Sparkle</a>.</p>
+  <p class="credits">Speech recognition by NVIDIA's <a href="https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b">Nemotron 3.5 ASR</a> via <a href="https://github.com/FluidInference/FluidAudio">FluidAudio</a>. Updates by <a href="https://sparkle-project.org">Sparkle</a>. Demo video from <a href="https://youtu.be/gNhBfh8_DoI">Osaka Food Tour 2026</a> by Nomad Journal (<a href="https://creativecommons.org/licenses/by/3.0/">CC BY</a>).</p>
 </footer>
+<script src="demo.js" defer></script>
 </body>
 </html>
