@@ -399,7 +399,14 @@ final class SnapView: NSView {
         guard id != hovered else { return }
         if let old = hovered, !pinned.contains(old), !strip.showAll { ink(old, in: false) }
         hovered = id
-        if let id { ink(id, in: true) }
+        if let id, !rereading(id) { ink(id, in: true) }
+    }
+
+    /// A guess in an area being read again stays hidden under the shimmer,
+    /// even hovered: the read that follows shows it, or what replaces it.
+    private func rereading(_ id: Int) -> Bool {
+        guard !job.settled(id), let patch = patches.first(where: { $0.id == id }) else { return false }
+        return forcing.contains { Self.pixels($0, job.scale).intersects(patch.source) }
     }
 
     /// Ink: the translation settles in out of a blur, or melts back into one.
