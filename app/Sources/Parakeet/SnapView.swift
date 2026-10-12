@@ -403,7 +403,7 @@ final class SnapView: NSView {
     }
 
     /// A guess in an area being read again stays hidden under the shimmer,
-    /// even hovered: the read that follows shows it, or what replaces it.
+    /// hovered or dragged over: the read that follows shows it, or what replaces it.
     private func rereading(_ id: Int) -> Bool {
         guard !job.settled(id), let patch = patches.first(where: { $0.id == id }) else { return false }
         return forcing.contains { Self.pixels($0, job.scale).intersects(patch.source) }
@@ -443,10 +443,11 @@ final class SnapView: NSView {
         return blur
     }
 
-    /// Everything in a dragged area stays translated, top to bottom (or just what `only` lets through).
-    private func pin(in area: CGRect, only: (Int) -> Bool = { _ in true }) {
+    /// Everything in a dragged area stays translated, top to bottom, but for
+    /// guesses still being read again: those wait for their read.
+    private func pin(in area: CGRect) {
         let pixels = Self.pixels(area, job.scale)
-        let caught = patches.filter { $0.source.intersects(pixels) && only($0.id) }.sorted { $0.source.minY < $1.source.minY }
+        let caught = patches.filter { $0.source.intersects(pixels) && !rereading($0.id) }.sorted { $0.source.minY < $1.source.minY }
         for (i, patch) in caught.enumerated() where !pinned.contains(patch.id) {
             pinned.insert(patch.id)
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.05) { [weak self] in
@@ -524,13 +525,12 @@ final class SnapView: NSView {
                 dragged.append(area)
                 return pin(in: area)
             }
-            pin(in: area) { [job] in job.settled($0) }
             force(area, quiet: marks.values.contains { $0.frame.intersects(area) }) { [weak self] in
                 guard let self, !closing else { return }
                 dragged.append(area)
                 pin(in: area)
             }
-            return
+            return pin(in: area)
         }
         guard pictureFrame.contains(point) else { return onDismiss() }
         // A click keeps the paragraph under the pointer translated, or lets it go.
