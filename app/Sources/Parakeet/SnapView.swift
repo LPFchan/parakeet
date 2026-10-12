@@ -378,8 +378,8 @@ final class SnapView: NSView {
         let order = patches.sorted { $0.box.minY < $1.box.minY }.map(\.id)
         for (i, id) in order.enumerated() where !pinned.contains(id) && id != hovered {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.015) { [weak self] in
-                // Hovered or pinned meanwhile: it stays. Being read again meanwhile: it waits.
-                guard let self, !closing, strip.showAll == on, on ? !rereading(id) : (!pinned.contains(id) && id != hovered) else { return }
+                // Hovered or pinned meanwhile: it stays.
+                guard let self, !closing, strip.showAll == on, on || (!pinned.contains(id) && id != hovered) else { return }
                 ink(id, in: on)
             }
         }
@@ -399,11 +399,11 @@ final class SnapView: NSView {
         guard id != hovered else { return }
         if let old = hovered, !pinned.contains(old), !strip.showAll { ink(old, in: false) }
         hovered = id
-        if let id, !rereading(id) { ink(id, in: true) }
+        if let id { ink(id, in: true) }
     }
 
     /// A guess in an area being read again stays hidden under the shimmer,
-    /// hovered or dragged over: the read that follows shows it, or what replaces it.
+    /// whatever would show it: the read that follows shows it, or what replaces it.
     private func rereading(_ id: Int) -> Bool {
         guard !job.settled(id), let patch = patches.first(where: { $0.id == id }) else { return false }
         return forcing.contains { Self.pixels($0, job.scale).intersects(patch.source) }
@@ -413,7 +413,7 @@ final class SnapView: NSView {
     /// The blur is only there while it moves: on every translation showing,
     /// it was drawn again each frame anything moved, panning above all.
     private func ink(_ id: Int, in show: Bool) {
-        guard let layer = inks[id] else { return }
+        guard let layer = inks[id], !show || !rereading(id) else { return }
         if let mark = marks[id] { spring(mark, "opacity", to: show ? 0 : 1) }  // the translation takes its place
         if layer.filters == nil {  // settled in, sharp
             CATransaction.begin()
@@ -443,11 +443,10 @@ final class SnapView: NSView {
         return blur
     }
 
-    /// Everything in a dragged area stays translated, top to bottom, but for
-    /// guesses still being read again: those wait for their read.
+    /// Everything in a dragged area stays translated, top to bottom.
     private func pin(in area: CGRect) {
         let pixels = Self.pixels(area, job.scale)
-        let caught = patches.filter { $0.source.intersects(pixels) && !rereading($0.id) }.sorted { $0.source.minY < $1.source.minY }
+        let caught = patches.filter { $0.source.intersects(pixels) }.sorted { $0.source.minY < $1.source.minY }
         for (i, patch) in caught.enumerated() where !pinned.contains(patch.id) {
             pinned.insert(patch.id)
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.05) { [weak self] in
@@ -461,7 +460,7 @@ final class SnapView: NSView {
     /// The area shimmers while it's read again; what's found joins the rest and
     /// stays translated. Nothing found: the area shakes its head, unless
     /// `quiet` (something there is still on its way).
-    private func force(_ area: CGRect, quiet: Bool = false, then read: @escaping () -> Void = {}) {
+    private func force(_ area: CGRect, quiet: Bool = false) {
         forcing.append(area)
         reshape()
         let pixels = Self.pixels(area, job.scale)
@@ -469,7 +468,12 @@ final class SnapView: NSView {
             let found = await job.force(pixels)
             if let i = forcing.firstIndex(of: area) { forcing.remove(at: i) }  // just this read: another may be of the same area
             reshape()
-            read()
+            guard !closing else { return }
+            // What waited on this read shows now: the guess, if it stands.
+            for patch in patches where patch.source.intersects(pixels)
+                && (pinned.contains(patch.id) || hovered == patch.id || strip.showAll) {
+                ink(patch.id, in: true)
+            }
             guard found == 0, !closing, !quiet else { return }
             NSSound.beep()
             let lens = CALayer()
@@ -517,25 +521,17 @@ final class SnapView: NSView {
             // What was hovered when the drag began goes back, unless it's kept.
             if let old = hovered, !pinned.contains(old), !strip.showAll { ink(old, in: false) }
             hovered = nil
+            dragged.append(area)
             // What's translated there stays so; anything only guessed at, left
             // untranslated or not found at all is read again, harder. A guess
-            // shimmers meanwhile instead of showing, then gives way to the better
-            // read, or shows after all if the read comes out the same.
-            guard job.unsettled(Self.pixels(area, job.scale)) else {
-                dragged.append(area)
-                return pin(in: area)
+            // there shimmers meanwhile, even one already showing, then gives way
+            // to the better read, or shows after all if the read comes out the same.
+            if job.unsettled(Self.pixels(area, job.scale)) {
+                force(area, quiet: marks.values.contains { $0.frame.intersects(area) })
+                for id in patches.map(\.id) where rereading(id) { ink(id, in: false) }
             }
-            force(area, quiet: marks.values.contains { $0.frame.intersects(area) }) { [weak self] in
-                guard let self, !closing else { return }
-                dragged.append(area)
-                pin(in: area)
-            }
-            // A guess already showing there (pinned, or all shown) goes under the shimmer too.
-            for id in patches.map(\.id) where rereading(id) {
-                pinned.remove(id)
-                ink(id, in: false)
-            }
-            return pin(in: area)
+            pin(in: area)
+            return
         }
         guard pictureFrame.contains(point) else { return onDismiss() }
         // A click keeps the paragraph under the pointer translated, or lets it go.
