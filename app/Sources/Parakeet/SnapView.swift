@@ -12,6 +12,7 @@ final class SnapPanel: NSPanel {
     /// Pinches only go to the app in front, so Parakeet comes forward while
     /// the picture is up and hands back to this one when it closes.
     private let previous = NSWorkspace.shared.frontmostApplication
+    private var reclaim: NSObjectProtocol?
 
     init(screen: NSScreen, job: SnapJob, onClose: @escaping () -> Void) {
         view = SnapView(frame: CGRect(origin: .zero, size: screen.frame.size), job: job)
@@ -27,6 +28,19 @@ final class SnapPanel: NSPanel {
         makeKeyAndOrderFront(nil)
         NSApp.activate()
         view.play()
+        // A system prompt over the picture (Screen Recording's, say) hands the
+        // keyboard to the app behind it when it goes, so Esc and pinches would
+        // go there; the picture takes it back. The prompts' own agents aren't
+        // regular apps, so they're left to be answered.
+        reclaim = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self, !view.closing,
+                  let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.activationPolicy == .regular, app != .current else { return }
+            makeKeyAndOrderFront(nil)
+            NSApp.activate()
+        }
     }
 
     override var canBecomeKey: Bool { true }
@@ -34,6 +48,7 @@ final class SnapPanel: NSPanel {
 
     func dismiss() {
         guard !view.closing else { return }
+        if let reclaim { NSWorkspace.shared.notificationCenter.removeObserver(reclaim) }
         view.finish { [weak self] in
             guard let self else { return }
             orderOut(nil)
