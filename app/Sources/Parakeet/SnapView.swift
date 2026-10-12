@@ -376,10 +376,10 @@ final class SnapView: NSView {
     private func showAll(_ on: Bool) {
         guard !closing else { return }
         let order = patches.sorted { $0.box.minY < $1.box.minY }.map(\.id)
-        for (i, id) in order.enumerated() where !pinned.contains(id) && id != hovered && !rereading(id) {
+        for (i, id) in order.enumerated() where !pinned.contains(id) && id != hovered {
             DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.015) { [weak self] in
-                // Hovered or pinned meanwhile: it stays.
-                guard let self, !closing, strip.showAll == on, on || (!pinned.contains(id) && id != hovered) else { return }
+                // Hovered or pinned meanwhile: it stays. Being read again meanwhile: it waits.
+                guard let self, !closing, strip.showAll == on, on ? !rereading(id) : (!pinned.contains(id) && id != hovered) else { return }
                 ink(id, in: on)
             }
         }
