@@ -107,6 +107,8 @@ final class SnapJob {
     @ObservationIgnored private var lines: [CGRect] = []
     /// The screen's main language, for paragraphs too short to tell.
     @ObservationIgnored private var dominant: Locale.Language?
+    /// Whether the screen's Chinese and Japanese text, taken together, is Japanese.
+    @ObservationIgnored private var japanese = false
     /// Languages chosen for download, one at a time so macOS's prompts don't stack.
     @ObservationIgnored private var downloads: [Locale.Language] = []
     @ObservationIgnored private var missing: [MissingLanguage] = []
@@ -142,10 +144,12 @@ final class SnapJob {
             let lines = await Self.lines(in: image)
             let paragraphs = Paragraph.group(lines)
             let dominant = Self.language(of: paragraphs.map(\.text).joined(separator: "\n"))
+            let japanese = Self.language(of: paragraphs.map { Self.eastAsian($0.text) }.joined(separator: "\n"))?.languageCode == "ja"
             let painter = Painter(image)
             await MainActor.run {
                 self.painter = painter
                 self.dominant = dominant
+                self.japanese = japanese
                 self.lines = lines.map(\.box)
             }
             let found = await take(paragraphs)
@@ -204,13 +208,10 @@ final class SnapJob {
     /// so a stray guess (a place name read as Indonesian) is easy to spot.
     /// Returns how many there are to translate.
     private func take(_ found: [Paragraph]) async -> Int {
-        let target = target, dominant = await MainActor.run { self.dominant }
+        let target = target, (dominant, japanese) = await MainActor.run { (self.dominant, self.japanese) }
         let written = found.filter { $0.text.contains(where: \.isLetter) }  // not just numbers
         // A short paragraph is easily misread, so only a confident guess
         // overrides the language of the screen as a whole.
-        // Kana in this batch, or a Japanese screen around a forced read of just a label.
-        let japanese = dominant?.languageCode == "ja"
-            || written.contains { $0.text.unicodeScalars.contains { (0x3041...0x30FF).contains($0.value) } }
         let foreign: [Paragraph] = written.compactMap { paragraph in
             var paragraph = paragraph
             // Beside Latin the detector all but ignores kana; among Chinese or
@@ -219,9 +220,11 @@ final class SnapJob {
             let asian = ["zh", "ko"].contains(guess?.languageCode?.identifier)
             paragraph.source = !asian && Self.mostlyJapanese(paragraph.text) ? Locale.Language(identifier: "ja") : guess ?? dominant
             // Kanji alone (日時：10月12日…) don't say which language they're in,
-            // and the detector leans Traditional Chinese. With Japanese (kana)
-            // nearby, they're Japanese too; Simplified characters (下载完成后…)
-            // are not, so a clear Simplified guess stands.
+            // and the detector leans Traditional Chinese. On a screen whose
+            // Chinese and Japanese text reads as Japanese overall, they're
+            // Japanese too: a word of kana in a corner (a chat's まぼろし)
+            // doesn't make a Chinese post Japanese. Simplified characters
+            // (下载完成后…) are not, so a clear Simplified guess stands.
             let simplified = paragraph.source?.isSame(as: Locale.Language(identifier: "zh-Hans")) == true
             if japanese, !simplified, Self.onlyHan(paragraph.text) { paragraph.source = Locale.Language(identifier: "ja") }
             let native = [Self.language(of: paragraph.text), paragraph.source].contains { $0?.isSame(as: target) == true }
@@ -503,6 +506,13 @@ final class SnapJob {
         func japanese(_ c: Unicode.Scalar) -> Bool { kana(c) || (0x4E00...0x9FFF).contains(c.value) }
         let others = scalars.filter { $0.properties.isAlphabetic && !japanese($0) }.reduce(0) { $0 + ($1.value >= 0x2E80 ? 2 : 1) }
         return scalars.filter(japanese).count * 2 * 2 >= others
+    }
+
+    /// Just its Chinese characters and kana: beside them, Latin would drown the kana out.
+    private static func eastAsian(_ text: String) -> String {
+        String(String.UnicodeScalarView(text.unicodeScalars.filter {
+            (0x3041...0x30FF).contains($0.value) || (0x3400...0x4DBF).contains($0.value) || (0x4E00...0x9FFF).contains($0.value)
+        }))
     }
 
     /// Letters, but every one a Chinese character: no kana, no hangul, no Latin.
