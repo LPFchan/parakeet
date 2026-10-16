@@ -158,10 +158,16 @@ final class SnapJob {
     }
 
     /// Whether a drag over this area (pixels) should read it again: nothing
-    /// found there yet, or something only guessed at or left untranslated.
+    /// found there yet, or something only guessed at or left untranslated,
+    /// even given up on (its translation failed) beside lines that were translated.
     @MainActor func unsettled(_ area: CGRect) -> Bool {
-        let there = paragraphs.indices.filter { !dropped.contains($0) && paragraphs[$0].box.intersects(area) }
-        return there.isEmpty || there.contains { !held.contains($0) }
+        let live = paragraphs.indices.filter { !dropped.contains($0) }
+        // Given up on and not read again since: a better read that replaced it covers it.
+        let lost = dropped.contains { i in
+            paragraphs[i].box.intersects(area) && !live.contains { Self.overlap(paragraphs[$0].box, paragraphs[i].box) > 0.3 }
+        }
+        let there = live.filter { paragraphs[$0].box.intersects(area) }
+        return there.isEmpty || lost || there.contains { !held.contains($0) }
     }
 
     /// Whether this paragraph's translation stands: a forced read leaves it be.
