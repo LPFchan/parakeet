@@ -162,9 +162,11 @@ final class SnapJob {
     /// even given up on (its translation failed) beside lines that were translated.
     @MainActor func unsettled(_ area: CGRect) -> Bool {
         let live = paragraphs.indices.filter { !dropped.contains($0) }
-        // Given up on and not read again since: a better read that replaced it covers it.
+        // Given up on and not read again since: what replaced it covers most of it, not just a scrap.
         let lost = dropped.contains { i in
-            paragraphs[i].box.intersects(area) && !live.contains { Self.overlap(paragraphs[$0].box, paragraphs[i].box) > 0.3 }
+            let box = paragraphs[i].box
+            let covered = live.map { paragraphs[$0].box.intersection(box) }.filter { !$0.isNull }.reduce(0) { $0 + $1.width * $1.height }
+            return box.intersects(area) && covered < box.width * box.height * 0.5
         }
         let there = live.filter { paragraphs[$0].box.intersects(area) }
         return there.isEmpty || lost || there.contains { !held.contains($0) }
