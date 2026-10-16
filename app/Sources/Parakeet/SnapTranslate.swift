@@ -164,9 +164,11 @@ final class SnapJob {
         let live = paragraphs.indices.filter { !dropped.contains($0) }
         // Given up on and not read again since: what replaced it covers most of it, not just a scrap.
         let lost = dropped.contains { i in
+            // Sampled on a grid, as replacements may overlap one another.
             let box = paragraphs[i].box
-            let covered = live.map { paragraphs[$0].box.intersection(box) }.filter { !$0.isNull }.reduce(0) { $0 + $1.width * $1.height }
-            return box.intersects(area) && covered < box.width * box.height * 0.5
+            let points = (0..<64).map { CGPoint(x: box.minX + box.width * (CGFloat($0 % 8) + 0.5) / 8, y: box.minY + box.height * (CGFloat($0 / 8) + 0.5) / 8) }
+            let covered = points.filter { point in live.contains { paragraphs[$0].box.contains(point) } }.count
+            return box.intersects(area) && covered < points.count / 2
         }
         let there = live.filter { paragraphs[$0].box.intersects(area) }
         return there.isEmpty || lost || there.contains { !held.contains($0) }
