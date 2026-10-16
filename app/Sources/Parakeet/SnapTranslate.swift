@@ -183,11 +183,12 @@ final class SnapJob {
     @MainActor func force(_ area: CGRect) async -> Int {
         let image = image
         await reading?.value  // what the whole read finds isn't found twice
-        // Whatever it may replace is read whole, not just the lines dragged over.
+        // Whatever it may replace is read whole, not just the lines dragged
+        // over, and so is what was given up on there.
         let held = held
         var area = area, taken: Set<Int> = []
         while let i = paragraphs.indices.first(where: { i in
-            !taken.contains(i) && !dropped.contains(i) && !held.contains(i) && paragraphs[i].box.intersects(area)
+            !taken.contains(i) && !held.contains(i) && paragraphs[i].box.intersects(area)
         }) {
             taken.insert(i)
             area = area.union(paragraphs[i].box.insetBy(dx: -8, dy: -8))
