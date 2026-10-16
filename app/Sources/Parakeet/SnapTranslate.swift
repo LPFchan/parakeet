@@ -208,8 +208,10 @@ final class SnapJob {
     /// so a stray guess (a place name read as Indonesian) is easy to spot.
     /// Returns how many there are to translate.
     private func take(_ found: [Paragraph]) async -> Int {
-        let target = target, (dominant, japanese) = await MainActor.run { (self.dominant, self.japanese) }
+        let target = target, (dominant, screen) = await MainActor.run { (self.dominant, self.japanese) }
         let written = found.filter { $0.text.contains(where: \.isLetter) }  // not just numbers
+        // A Japanese screen around a forced read of just a label, or Japanese the whole read missed.
+        let japanese = screen || Self.language(of: written.map { Self.eastAsian($0.text) }.joined(separator: "\n"))?.languageCode == "ja"
         // A short paragraph is easily misread, so only a confident guess
         // overrides the language of the screen as a whole.
         let foreign: [Paragraph] = written.compactMap { paragraph in
