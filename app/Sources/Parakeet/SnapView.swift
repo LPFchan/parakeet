@@ -307,7 +307,9 @@ final class SnapView: NSView {
     private func reshape(_ rects: [CGRect]? = nil, corner: CGFloat = 6) {
         let path = CGMutablePath()
         for rect in rects ?? (waitingFor.compactMap({ marks[$0]?.frame }) + forcing) {
-            path.addRoundedRect(in: rect, cornerWidth: min(corner, rect.height / 2), cornerHeight: min(corner, rect.height / 2))
+            // macOS 15 aborts on a corner wider than half the rect, as a narrow line's is.
+            let radius = min(corner, rect.width / 2, rect.height / 2)
+            path.addRoundedRect(in: rect, cornerWidth: radius, cornerHeight: radius)
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
