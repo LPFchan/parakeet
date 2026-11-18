@@ -381,7 +381,7 @@ final class SnapJob {
     }
 
     /// How much a text says, roughly: a Chinese, Japanese or Korean character counts as two letters.
-    private static func weight(_ text: String) -> Int {
+    static func weight(_ text: String) -> Int {
         text.unicodeScalars.reduce(0) { sum, c in
             sum + ((0x3040...0x30FF).contains(c.value) || (0x4E00...0x9FFF).contains(c.value) || (0xAC00...0xD7A3).contains(c.value) ? 2 : 1)
         }

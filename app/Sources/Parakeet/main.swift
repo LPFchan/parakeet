@@ -91,7 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Fade out once nobody has spoken for a while; the original and its
             // translation go together, though the translation arrives later.
             let shown = translator.target == nil ? [captions] : [captions, translator.output]
-            if shown.allSatisfy({ $0.idle > 6 }) { shown.forEach { $0.clear() } }
+            if shown.allSatisfy({ $0.idle > 6 }) { shown.forEach { $0.clear() }; translator.quiet() }
         }
         DistributedNotificationCenter.default().addObserver(forName: Control.command, object: nil, queue: .main) { [weak self] note in
             self?.run(command: note.object as? String ?? "")

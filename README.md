@@ -18,8 +18,10 @@ leaves it.
   and pick a language to translate into.
 - With a language picked, the translation shows large and the original
   small underneath. That language is taken as your own: while the audio is
-  in it, the box stays hidden. macOS asks once to download each language it
-  needs.
+  in it, the box stays hidden. Speech in a language that isn't downloaded
+  shows as heard; once it's clearly what's being spoken (a misheard word
+  never counts), a bar under the box offers to download it, and macOS asks
+  before it does. Not Now keeps that language quiet until Parakeet restarts.
 - ⇧⌘1 translates the screen: it shrinks into a picture, every paragraph on it
   is read and translated (into the language captions translate into, or
   your Mac's language when that's off), and the picture glows once it's
@@ -66,6 +68,10 @@ audio permission and downloads the speech model (~640 MB) from Hugging Face.
   to Apple's Translation framework, naming the source language itself
   (`NaturalLanguage` detects it) so macOS doesn't stop to ask. Pieces of an
   unfinished sentence are re-translated together, shown dim until it ends.
+  A language that isn't downloaded never gets a session: macOS would ask
+  about it on every switch, or (when it can't show its prompt from the
+  caption box) wait forever and translate nothing more. Its download prompt
+  hangs off a 1-point window that comes forward only to ask.
 - `SnapTranslate.swift` is ⇧⌘1's work. It captures the screen with
   ScreenCaptureKit and reads it with Vision on the Neural Engine: whole, then
   in four overlapping quarters in the languages the whole read found (read
