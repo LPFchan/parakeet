@@ -366,7 +366,8 @@ struct CaptionView: View {
     // Speech that can't be translated shows as with translation off.
     private var translation: Captions? { translator?.target == nil || translator?.passing == true ? nil : translator?.output }
     private var isEmpty: Bool { captions.isEmpty && translation?.isEmpty ?? true }
-    private var shown: Bool { !isEmpty && !(translation != nil && translator?.hearingNative == true) }
+    // Your own language hides the box whenever a target is picked, translating or passing through.
+    private var shown: Bool { !isEmpty && !(translator?.target != nil && translator?.hearingNative == true) }
 
     var body: some View {
         VStack(spacing: 0) {
