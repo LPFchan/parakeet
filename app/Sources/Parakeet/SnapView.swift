@@ -724,7 +724,7 @@ private struct StripView: View {
     }
 }
 
-private struct Pill: ViewModifier {
+struct Pill: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(Color(white: 0.12).opacity(0.85), in: .capsule)

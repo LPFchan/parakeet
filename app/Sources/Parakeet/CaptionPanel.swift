@@ -76,7 +76,9 @@ final class Captions {
 }
 
 /// Translates each locked sentence into its own caption stream, shown above
-/// the original. Sentences already in the target language pass through.
+/// the original. Sentences already in the target language pass through, and
+/// so does speech in a language that isn't downloaded: it's offered for
+/// download once it's clearly what's being spoken.
 @Observable
 final class Translator {
     let output = Captions()
@@ -84,16 +86,34 @@ final class Translator {
         didSet {
             UserDefaults.standard.set(target?.minimalIdentifier, forKey: "translateTo")
             queue.removeAll(); draft = ""; output.clear(); hearingNative = false
+            known = [:]; heardLately = []; offer = nil
         }
     }
     /// The language translated into is taken as the user's own: while the
     /// speech is in it, there is nothing to caption and the box hides.
     private(set) var hearingNative = false
+    /// The speech is in a language that can't be translated (yet): the box
+    /// shows it as heard, large, as with translation off.
+    private(set) var passing = false
+    /// A language heard clearly but not downloaded, offered under the box.
+    private(set) var offer: Locale.Language?
     /// What Translation can translate into, by name.
     private(set) var languages: [Locale.Language] = []
-    /// The language being heard. Translation needs it spelled out: left to
-    /// detect it, the framework stops to ask the user.
+    /// The language being heard, when it's downloaded. Translation needs it
+    /// spelled out: left to detect it, the framework stops to ask the user.
     private var source: Locale.Language?
+    /// The language being spoken, downloaded or not.
+    @ObservationIgnored private var speech: Locale.LanguageCode?
+    /// Downloaded, or not translatable at all, by language heard. Ones that could be
+    /// downloaded are asked again each time: a download may finish any moment.
+    @ObservationIgnored private var known: [Locale.LanguageCode: LanguageAvailability.Status] = [:]
+    /// Offered once a launch: turned down, or handed to macOS to download.
+    @ObservationIgnored private var asked: Set<Locale.LanguageCode> = []
+    /// Recent speech in languages that aren't downloaded, for judging whether
+    /// one is really being spoken or was a misheard scrap.
+    @ObservationIgnored private var heardLately: [(at: Date, language: Locale.LanguageCode, weight: Int)] = []
+    /// Shows macOS's download prompt; the caption panel sets it.
+    @ObservationIgnored var ask: (_ source: Locale.Language, _ target: Locale.Language) -> Void = { _, _ in }
     @ObservationIgnored private var queue: [(text: String, ends: Bool)] = []
     /// The unfinished sentence so far. A piece cut from it mid-sentence
     /// translates badly on its own, so each new piece re-translates all of it:
@@ -130,20 +150,32 @@ final class Translator {
         for await _ in signals {
             while let (piece, ends) = queue.first {
                 let text = draft.isEmpty ? piece : draft + " " + piece
-                let heard = Self.language(of: text, leaning: source)
+                let heard = Self.language(of: text, leaning: speech.map { Locale.Language(languageCode: $0) })
                 if heard == target?.languageCode {  // hidden anyway; nothing to show
                     queue.removeFirst()
                     draft = ""
                     output.clear()
                     continue
                 }
-                if let heard, heard != target?.languageCode, heard != source?.languageCode {
-                    source = Locale.Language(languageCode: heard)  // a session for the new language picks it up
-                    return
+                if let heard { speech = heard }
+                // Nothing heard clearly yet: show it as heard.
+                guard let speech else { pass(); continue }
+                if speech != source?.languageCode {
+                    // Never a session for a language that isn't downloaded: macOS would
+                    // stop to ask about it on every switch, or (when it can't show
+                    // its prompt) wait for an answer forever, translating nothing more.
+                    let status = await status(of: speech)
+                    if Task.isCancelled { return }
+                    if status == .installed {
+                        source = Locale.Language(languageCode: speech)  // a session for the new language picks it up
+                        return
+                    }
+                    pass()
+                    if status == .supported { consider(speech, piece) }
+                    continue
                 }
-                // Nothing to translate from yet: show it as heard.
-                let translate = source != nil && (heard ?? source?.languageCode) != target?.languageCode
-                let result = translate ? try? await session.translate(text) : nil
+                passing = false
+                let result = try? await session.translate(text)
                 if Task.isCancelled { return }  // keep it queued for the next session
                 queue.removeFirst()
                 lastPiece = .now
@@ -158,6 +190,53 @@ final class Translator {
             }
         }
     }
+
+    /// Shows the front of the queue as heard instead of translating it.
+    private func pass() {
+        queue.removeFirst()
+        draft = ""
+        output.clear()
+        passing = true
+    }
+
+    private func status(of language: Locale.LanguageCode) async -> LanguageAvailability.Status? {
+        guard let target else { return nil }
+        if let status = known[language] { return status }
+        let status = await LanguageAvailability().status(from: Locale.Language(languageCode: language), to: target)
+        if status != .supported { known[language] = status }
+        return status
+    }
+
+    /// Offers a language once it's clearly being spoken: two pieces of it,
+    /// sure of it each time, about two sentences' worth within half a minute.
+    /// A misheard scrap now and then never adds up to that.
+    private func consider(_ language: Locale.LanguageCode, _ piece: String) {
+        guard offer == nil, !asked.contains(language),
+              Self.language(of: piece, confidence: 0.8) == language else { return }
+        heardLately.removeAll { $0.at < Date(timeIntervalSinceNow: -30) }
+        heardLately.append((.now, language, SnapJob.weight(piece)))
+        let mine = heardLately.filter { $0.language == language }
+        guard mine.count >= 2, mine.map(\.weight).reduce(0, +) >= 80 else { return }
+        heardLately.removeAll()
+        offer = Locale.Language(languageCode: language)
+    }
+
+    /// Asked once a launch, either way.
+    func decline() {
+        if let language = offer?.languageCode { asked.insert(language) }
+        offer = nil
+    }
+
+    /// macOS asks for permission, then downloads it; until it's in, the speech still shows as heard.
+    func download() {
+        guard let language = offer, let code = language.languageCode, let target else { return }
+        asked.insert(code)
+        offer = nil
+        ask(language, target)
+    }
+
+    /// Nobody's speaking: an offer nobody answered goes with the captions.
+    func quiet() { offer = nil }
 
     /// A sentence that stopped without its full stop: lock its draft once
     /// nothing more has come for a while.
@@ -190,6 +269,48 @@ final class Translator {
     }
 }
 
+/// macOS asks before downloading a language, in a prompt that hangs off a
+/// window of the app in front. The caption box is never in front (it mustn't
+/// take the keyboard), so this comes forward just to ask, and goes once it's answered.
+final class DownloadPrompt: NSPanel {
+    private let previous = NSWorkspace.shared.frontmostApplication
+
+    init(source: Locale.Language, target: Locale.Language, at point: CGPoint, done: @escaping () -> Void) {
+        super.init(contentRect: CGRect(origin: point, size: CGSize(width: 1, height: 1)), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        level = .statusBar
+        backgroundColor = .clear
+        hasShadow = false
+        isReleasedWhenClosed = false
+        contentView = NSHostingView(rootView: DownloadHost(configuration: .init(source: source, target: target)) { [weak self] in
+            self?.finish()
+            done()
+        })
+        makeKeyAndOrderFront(nil)
+        NSApp.activate()
+    }
+
+    override var canBecomeKey: Bool { true }
+
+    private func finish() {
+        orderOut(nil)
+        contentView = nil
+        if previous?.processIdentifier != ProcessInfo.processInfo.processIdentifier { previous?.activate() }
+    }
+}
+
+private struct DownloadHost: View {
+    let configuration: TranslationSession.Configuration
+    let done: () -> Void
+
+    var body: some View {
+        // Turned down, it throws; either way the answer is in.
+        Color.clear.translationTask(configuration) { session in
+            try? await session.prepareTranslation()
+            done()
+        }
+    }
+}
+
 /// A floating, draggable caption box that stays above
 /// other windows, including full-screen apps.
 final class CaptionPanel: NSPanel {
@@ -206,14 +327,27 @@ final class CaptionPanel: NSPanel {
 
         let screen = NSScreen.main?.visibleFrame ?? .init(x: 0, y: 0, width: 1440, height: 900)
         let width = min(900, screen.width * 0.7)
-        let height: CGFloat = 150
-        setFrame(.init(x: screen.midX - width / 2, y: screen.minY + 60, width: width, height: height), display: false)
+        let height = 150 + CaptionView.offerHeight
+        setFrame(.init(x: screen.midX - width / 2, y: screen.minY + 60 - CaptionView.offerHeight, width: width, height: height), display: false)
         setFrameAutosaveName("Captions")  // remember where it was dragged to
+        // Saved before there was room under the box for a download offer: grow
+        // it downward, so the box stays where it was put.
+        if frame.height < height {
+            setFrame(.init(x: frame.minX, y: frame.minY - (height - frame.height), width: frame.width, height: height), display: false)
+        }
+        translator.ask = { [weak self] source, target in
+            guard let self else { return }
+            prompt = DownloadPrompt(source: source, target: target, at: CGPoint(x: frame.midX, y: frame.minY + CaptionView.offerHeight)) { [weak self] in
+                self?.prompt = nil
+            }
+        }
 
         let host = NSHostingView(rootView: CaptionView(captions: captions, translator: translator, onClose: onClose, onCopy: onCopy))
         host.sizingOptions = []
         contentView = host
     }
+
+    private var prompt: DownloadPrompt?
 
     override var canBecomeKey: Bool { false }
 }
@@ -226,12 +360,17 @@ struct CaptionView: View {
     var onCopy: (() -> Void)?
     @State private var hovering = false
 
-    private var translation: Captions? { translator?.target == nil ? nil : translator?.output }
+    /// Room under the box for a download offer, kept even when there's none so the box never moves.
+    static let offerHeight: CGFloat = 46
+
+    // Speech that can't be translated shows as with translation off.
+    private var translation: Captions? { translator?.target == nil || translator?.passing == true ? nil : translator?.output }
     private var isEmpty: Bool { captions.isEmpty && translation?.isEmpty ?? true }
-    private var shown: Bool { !isEmpty && !(translation != nil && translator?.hearingNative == true) }
+    // Your own language hides the box whenever a target is picked, translating or passing through.
+    private var shown: Bool { !isEmpty && !(translator?.target != nil && translator?.hearingNative == true) }
 
     var body: some View {
-        VStack {
+        VStack(spacing: 0) {
             Spacer(minLength: 0)
             if shown {
                 HStack(alignment: .center, spacing: 14) {
@@ -277,9 +416,47 @@ struct CaptionView: View {
                 .background(.black.opacity(0.72), in: .rect(cornerRadius: 14))
                 .transition(.opacity)
             }
+            if onClose != nil, let translator {
+                ZStack {
+                    if shown, let language = translator.offer {
+                        DownloadOffer(language: language, decline: translator.decline, download: translator.download)
+                            .transition(.opacity.combined(with: .offset(y: -8)))
+                    }
+                }
+                .frame(height: Self.offerHeight, alignment: .bottom)
+                .animation(.spring(duration: 0.34, bounce: 0), value: shown ? translator.offer : nil)
+            }
         }
         .animation(.easeOut(duration: 0.3), value: shown)
         .translationTask(translator?.configuration) { session in await translator?.run(session) }
+    }
+}
+
+/// Asks whether to download the language being spoken, in ⇧⌘1's words and
+/// look; macOS asks for permission after.
+private struct DownloadOffer: View {
+    let language: Locale.Language
+    let decline: () -> Void
+    let download: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.down.circle").font(.system(size: 15, weight: .medium)).foregroundStyle(.white.opacity(0.7))
+            Text("Download \(Translator.name(language)) to translate?").font(.system(size: 13, weight: .medium)).foregroundStyle(.white.opacity(0.85))
+            Button("Not Now", action: decline)
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.6))
+                .padding(.leading, 6)
+            Button("Download", action: download)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .modifier(Pill())
+        .environment(\.colorScheme, .dark)
+        .fixedSize()
     }
 }
 
