@@ -20,6 +20,11 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Frameworks" "$app/Contents/Resources"
 cp "$bin/Parakeet" "$app/Contents/MacOS/Parakeet"
 ditto "$bin/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
+# Swift's back-deployed Span runtime (MLX uses Span), which macOS before 26
+# lacks. Xcode embeds it in apps; swift build doesn't.
+if otool -L "$bin/Parakeet" | grep -q libswiftCompatibilitySpan; then
+    cp "$(dirname "$(xcrun --find swift)")"/../lib/swift-*/macosx/libswiftCompatibilitySpan.dylib "$app/Contents/Frameworks/"
+fi
 # PermissionFlow's strings, where its lookup finds them.
 ditto "$bin/PermissionFlow_PermissionFlow.bundle" "$app/Contents/Resources/PermissionFlow_PermissionFlow.bundle"
 # MLX's GPU kernels (default.metallib) and the tokenizer fallbacks, for the
@@ -84,6 +89,7 @@ if [ -n "$identity" ]; then
     fw="$app/Contents/Frameworks/Sparkle.framework/Versions/B"
     sign "$fw/XPCServices/Installer.xpc" "$fw/XPCServices/Downloader.xpc" "$fw/Autoupdate" "$fw/Updater.app"
     sign "$app/Contents/Frameworks/Sparkle.framework"
+    [ -f "$app/Contents/Frameworks/libswiftCompatibilitySpan.dylib" ] && sign "$app/Contents/Frameworks/libswiftCompatibilitySpan.dylib"
     sign "$app"
     echo "signed: $identity"
 else
