@@ -94,6 +94,8 @@ audio permission and downloads the speech model (~640 MB) from Hugging Face.
 ## Development
 
 Needs Xcode 26 or later (PermissionFlow's package manifest uses Swift tools 6.2).
+The `--engine qwen` debug build runs on MLX, whose GPU kernels need the Metal
+Toolchain: `xcodebuild -downloadComponent MetalToolchain`.
 
 ```sh
 scripts/build-app.sh          # → build/Parakeet.app
@@ -109,7 +111,8 @@ English. Translations live in `app/Resources/Localizable.xcstrings` (and
 `open build/Parakeet.app --args -AppleLanguages "(ko)"`.
 
 `--bench` plays a clip into the engine in real time and prints the captions
-and the CPU used. `open build/Parakeet.app --args --rehearse-first-launch`
+and the CPU used. Put `--engine ultra` or `--engine qwen` (Qwen3-ASR 1.7B on
+the GPU, ~2 GB download) first to try another speech model. `open build/Parakeet.app --args --rehearse-first-launch`
 opens the welcome window as a new user sees it, with a fake model download
 and preparation pause, without touching the downloaded model. `swift scripts/make-icon.swift` redraws the app icon.
 

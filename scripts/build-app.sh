@@ -22,6 +22,13 @@ cp "$bin/Parakeet" "$app/Contents/MacOS/Parakeet"
 ditto "$bin/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
 # PermissionFlow's strings, where its lookup finds them.
 ditto "$bin/PermissionFlow_PermissionFlow.bundle" "$app/Contents/Resources/PermissionFlow_PermissionFlow.bundle"
+# MLX's GPU kernels (default.metallib) and the tokenizer fallbacks, for the
+# "--engine qwen" debug build. swift build compiles the kernels only with
+# the Metal Toolchain installed: xcodebuild -downloadComponent MetalToolchain
+for bundle in mlx-swift_Cmlx swift-transformers_Hub; do
+    ditto "$bin/$bundle.bundle" "$app/Contents/Resources/$bundle.bundle"
+done
+[ -f "$app/Contents/Resources/mlx-swift_Cmlx.bundle/Contents/Resources/default.metallib" ] || { echo "no default.metallib: install the Metal Toolchain" >&2; exit 1; }
 cp "$root/app/Resources/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
 # License notices for Parakeet and the libraries built into it.
 licenses="$app/Contents/Resources/Licenses"
@@ -32,6 +39,9 @@ cp "$checkouts/FluidAudio/LICENSE" "$licenses/FluidAudio.txt"
 cp "$checkouts/FluidAudio/ThirdPartyLicenses/"* "$licenses/"
 cp "$checkouts/Sparkle/LICENSE" "$licenses/Sparkle.txt"
 cp "$checkouts/PermissionFlow/LICENSE" "$licenses/PermissionFlow.txt"
+for package in mlx-audio-swift mlx-swift swift-transformers swift-huggingface swift-jinja swift-crypto swift-asn1 swift-collections swift-numerics EventSource yyjson zstd; do
+    cp "$(ls "$checkouts/$package"/LICENSE* | head -1)" "$licenses/$package.txt"
+done
 # Translations: String Catalogs → <lang>.lproj/*.strings. English is the source,
 # but still needs its own folder so macOS counts it as a supported language.
 for catalog in Localizable InfoPlist; do

@@ -12,9 +12,10 @@ enum Control {
 }
 
 /// Which speech model to run: the default Nemotron streaming ASR, or
-/// Parakeet Ultra (--engine ultra) for side-by-side debugging.
+/// Parakeet Ultra (--engine ultra) or Qwen3-ASR (--engine qwen) for
+/// side-by-side debugging.
 enum EngineKind: String {
-    case nemotron, ultra
+    case nemotron, ultra, qwen
 
     static let current: EngineKind = {
         let args = Array(CommandLine.arguments.dropFirst())
@@ -26,6 +27,7 @@ enum EngineKind: String {
         switch self {
         case .nemotron: return "Nemotron 3.5"
         case .ultra: return "Parakeet Ultra"
+        case .qwen: return "Qwen3-ASR 1.7B"
         }
     }
 
@@ -33,6 +35,7 @@ enum EngineKind: String {
         switch self {
         case .nemotron: return NemotronEngine(rehearseFirstLaunch: rehearseFirstLaunch, onEvent: onEvent)
         case .ultra: return UltraEngine(rehearseFirstLaunch: rehearseFirstLaunch, onEvent: onEvent)
+        case .qwen: return QwenEngine(rehearseFirstLaunch: rehearseFirstLaunch, onEvent: onEvent)
         }
     }
 }
@@ -68,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private var engineTag: String {
-        EngineKind.current == .ultra ? " [Parakeet Ultra]" : ""
+        EngineKind.current == .nemotron ? "" : " [\(EngineKind.current.modelName)]"
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
